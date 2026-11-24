@@ -63,9 +63,8 @@ data class SchoolEventInfo(
     val courseTitle: String,
     val periods: List<SchoolEventPeriod>,
     val absences: List<SchoolEventAbsence>,
-    val lift: SchoolClassLift? = null,
+    val lift: SchoolClassLift?,
 ) {
-    val courseKey: String get() = course
     val absenceCoverage: SchoolAbsenceCoverage get() {
         if (absences.isEmpty()) return SchoolAbsenceCoverage.NONE
         if (periods.isEmpty()) return SchoolAbsenceCoverage.FULL
@@ -168,15 +167,15 @@ object CalendarDates {
 internal data class StoredEvent(
     val draft: EventDraft,
     val uid: String,
-    val exdate: String? = null,
-    val rdate: String? = null,
-    val exrule: String? = null,
-    val originalId: Long? = null,
-    val originalInstanceTime: Long? = null,
-    val originalAllDay: Boolean = false,
-    val canceled: Boolean = false,
-    val syncId: String? = null,
-    val originalSyncId: String? = null,
-    val originalDuration: String? = null,
-    val invalidReason: String? = null,
+    val exdate: String?,
+    val rdate: String?,
+    val exrule: String?,
+    val originalId: Long?,
+    val originalInstanceTime: Long?,
+    val originalAllDay: Boolean,
+    val canceled: Boolean,
+    val syncId: String?,
+    val originalSyncId: String?,
+    val originalDuration: String?,
+    val invalidReason: String?,
 )

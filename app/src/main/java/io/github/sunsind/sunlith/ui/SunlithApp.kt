@@ -1,13 +1,9 @@
 package io.github.sunsind.sunlith.ui
 
 import android.Manifest
-import android.graphics.Color as AndroidColor
-import androidx.activity.ComponentActivity
-import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentTransitionScope
@@ -48,7 +44,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -71,7 +66,7 @@ import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.school.SchoolScheduleManager
 
 @Composable
-fun SunlithApp(vm: SunlithViewModel) {
+fun SunlithApp(vm: SunlithViewModel, footer: @Composable () -> Unit = {}) {
     val settingsState = rememberSaveableStateHolder()
     val settingsOpen = Screen.Settings in vm.stack
     LaunchedEffect(settingsOpen) {
@@ -79,13 +74,7 @@ fun SunlithApp(vm: SunlithViewModel) {
     }
     SunlithTheme(vm.themeMode, vm.materialYou) {
         val p = LocalPalette.current
-        val activity = LocalActivity.current as? ComponentActivity
-        DisposableEffect(p.dark, activity) {
-            val style = if (p.dark) SystemBarStyle.dark(AndroidColor.TRANSPARENT)
-            else SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
-            activity?.enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
-            onDispose { }
-        }
+        SystemBarsForPalette()
         val snackbar = remember { SnackbarHostState() }
         LaunchedEffect(vm) {
             vm.messages.collect { m ->
@@ -98,7 +87,8 @@ fun SunlithApp(vm: SunlithViewModel) {
         }
         val courseColors = rememberCourseColors(vm.eventsByDay, vm.courseColorSlots)
         CompositionLocalProvider(LocalCourseColors provides courseColors) {
-        Box(Modifier.fillMaxSize().background(p.background)) {
+        Column(Modifier.fillMaxSize()) {
+        Box(Modifier.weight(1f).fillMaxWidth().background(p.background)) {
             when {
                 !vm.aiIntroDone -> ComputerWelcome(vm)
                 !vm.layoutSetupDone -> LayoutSetupScreen(vm)
@@ -157,20 +147,22 @@ fun SunlithApp(vm: SunlithViewModel) {
                 Snackbar(data, containerColor = p.ink, contentColor = p.background, actionColor = p.background, dismissActionContentColor = p.background, shape = RoundedCornerShape(10.dp))
             }
         }
+        footer()
+        }
         }
     }
 }
 
 /** The screen on top of the calendar, how many screens are open, and whether it must appear without a fade. */
-internal data class ScreenLayer(val screen: Screen?, val depth: Int, val instant: Boolean = false)
+private data class ScreenLayer(val screen: Screen?, val depth: Int, val instant: Boolean)
 
-internal enum class ScreenMotion { Enter, Return, Cut }
+private enum class ScreenMotion { Enter, Return, Cut }
 
 /**
  * Screens fade over an opaque screen below them. Entering or leaving the calendar is a cut, so opening a destination
  * never spends its fade on an empty cover and the calendar never shows through a half faded screen.
  */
-internal fun screenMotion(from: ScreenLayer, to: ScreenLayer, motion: Boolean): ScreenMotion = when {
+private fun screenMotion(from: ScreenLayer, to: ScreenLayer, motion: Boolean): ScreenMotion = when {
     !motion || to.instant || to.screen == null || from.screen == null -> ScreenMotion.Cut
     to.depth >= from.depth -> ScreenMotion.Enter
     else -> ScreenMotion.Return

@@ -8,9 +8,9 @@ class TodoStore(context: Context) {
 
     fun isCompleted(key: String): Boolean = preferences.contains(key)
 
-    fun setCompleted(key: String, completed: Boolean, now: Long = System.currentTimeMillis()) {
+    fun setCompleted(key: String, completed: Boolean) {
         preferences.edit().apply {
-            if (completed) putLong(key, now) else remove(key)
+            if (completed) putLong(key, System.currentTimeMillis()) else remove(key)
         }.apply()
     }
 }

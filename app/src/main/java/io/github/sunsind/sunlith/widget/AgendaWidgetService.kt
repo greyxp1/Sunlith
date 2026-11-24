@@ -13,6 +13,8 @@ import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.data.CalendarEvent
 import io.github.sunsind.sunlith.data.CalendarRepository
 import io.github.sunsind.sunlith.system.SettingsStore
+import io.github.sunsind.sunlith.system.visibleCalendarIds
+import io.github.sunsind.sunlith.ui.indexByDay
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -56,32 +58,18 @@ private class AgendaFactory(private val context: Context) : RemoteViewsService.R
                 base.copy(rows = listOf(WidgetRow.Message(R.string.widget_calendar_access)))
             } else {
                 val repo = CalendarRepository(context)
-                val calendars = repo.calendars()
-                val ids = if (settings.hasChosenCalendars) settings.selectedCalendarIds.intersect(calendars.map { it.id }.toSet())
-                    else calendars.filter { it.visible }.map { it.id }.toSet()
+                val ids = settings.visibleCalendarIds(repo.calendars())
                 if (ids.isEmpty()) {
                     base.copy(rows = listOf(WidgetRow.Message(R.string.widget_choose_calendars)))
                 } else {
                     val end = today.plusDays(settings.widgetDays.coerceIn(1, 31).toLong())
                     val startMillis = minOf(today.atStartOfDay(zone).toInstant().toEpochMilli(), today.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli())
                     val endMillis = maxOf(end.atStartOfDay(zone).toInstant().toEpochMilli(), end.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli())
-                    val index = mutableMapOf<LocalDate, MutableList<CalendarEvent>>()
-                    repo.events(startMillis, endMillis, ids).forEach { event ->
-                        val eventZone = if (event.allDay) ZoneOffset.UTC else zone
-                        val first = Instant.ofEpochMilli(event.startMillis).atZone(eventZone).toLocalDate()
-                        val last = Instant.ofEpochMilli(if (event.endMillis > event.startMillis) event.endMillis - 1 else event.startMillis)
-                            .atZone(eventZone).toLocalDate()
-                        var day = maxOf(first, today)
-                        val until = minOf(last, end.minusDays(1))
-                        while (!day.isAfter(until)) {
-                            index.getOrPut(day) { mutableListOf() }.add(event)
-                            day = day.plusDays(1)
-                        }
-                    }
+                    val index = indexByDay(repo.events(startMillis, endMillis, ids), zone, today, end.minusDays(1))
                     val rows = buildList {
                         var day = today
                         while (day < end) {
-                            val events = index[day].orEmpty().sortedWith(compareBy<CalendarEvent> { !it.allDay }.thenBy { it.startMillis }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+                            val events = index[day].orEmpty()
                             if (events.isEmpty() && settings.widgetShowEmptyDays) add(WidgetRow.Entry(day, null, true))
                             events.forEachIndexed { index, event -> add(WidgetRow.Entry(day, event, index == 0)) }
                             day = day.plusDays(1)

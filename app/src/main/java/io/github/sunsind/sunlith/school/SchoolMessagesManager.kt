@@ -2,20 +2,10 @@ package io.github.sunsind.sunlith.school
 
 import android.content.Context
 import android.os.SystemClock
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties
-import android.util.AtomicFile
 import android.util.Log
-import java.io.File
-import java.io.IOException
-import java.security.KeyStore
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.concurrent.atomic.AtomicLong
-import javax.crypto.Cipher
-import javax.crypto.KeyGenerator
-import javax.crypto.SecretKey
-import javax.crypto.spec.GCMParameterSpec
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,20 +20,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
-import org.json.JSONException
 import org.json.JSONObject
 
-/** Hooks the schedule sync uses. [items] reads only the local cache and never touches the network. */
-internal interface SchoolNoticeProvider {
-    fun items(record: SchoolRecord, term: SchoolTerm, english: Boolean): List<SchoolItem>
-    /** Confirmed class liftings from the local cache, or null when no notice read has succeeded yet (keep existing marks). */
-    fun classLifts(record: SchoolRecord, term: SchoolTerm): List<SchoolClassLift>? = null
-    fun refreshSoon()
-    suspend fun refreshForJob()
-    fun clear()
-}
+/** Notice events for a term, and confirmed class liftings or null when no notice read has succeeded yet (keep existing marks). */
+internal data class SchoolNoticeEvents(val items: List<SchoolItem>, val lifts: List<SchoolClassLift>?)
 
-internal data class SchoolMessagesCache(
+
+private data class SchoolMessagesCache(
     val account: String, val connection: String,
     val admin: List<SchoolAdminNotice> = emptyList(), val details: Map<String, SchoolAdminDetail> = emptyMap(),
     val adminAt: Long? = null, val adminStatus: SchoolAdminStatus = SchoolAdminStatus.NOT_LOADED,
@@ -55,11 +38,10 @@ internal data class SchoolMessagesCache(
         .put("seen", JSONObject().also { s -> seen.forEach { (id, body) -> s.put(id, body ?: JSONObject.NULL) } })
         .put("adminAt", adminAt ?: JSONObject.NULL).put("adminStatus", adminStatus.name)
 
-    // Older caches used the visible list as their alert baseline. Migrate it without alerting again.
-    fun history(): Map<String, String?> = if (seen.isNotEmpty()) seen else admin.associate { it.id to it.body?.let(::schoolHash) }
+    fun belongsTo(record: SchoolRecord) = account == record.account && connection == record.connection
 
     fun remember(): SchoolMessagesCache {
-        val history = LinkedHashMap(history())
+        val history = LinkedHashMap(seen)
         admin.forEach { message ->
             val fingerprint = message.body?.let(::schoolHash) ?: history[message.id]
             history.remove(message.id)
@@ -70,7 +52,7 @@ internal data class SchoolMessagesCache(
 
     fun arrivals(previous: SchoolMessagesCache): List<SchoolAdminNotice> {
         if (previous.adminAt == null) return emptyList()
-        val history = previous.history()
+        val history = previous.seen
         fun meaning(message: SchoolAdminNotice): SchoolCollegeNotice? =
             SchoolNoticeInterpreter.interpret(listOf(message)).singleOrNull()?.copy(text = "", detailRead = false, sender = "")
         val previousMessages = previous.admin.associateBy { it.id }
@@ -112,63 +94,27 @@ internal data class SchoolMessagesCache(
     }
 }
 
-internal class SchoolMessagesStore(context: Context) {
-    private val file = AtomicFile(File(context.noBackupFilesDir, "school-messages-v1.bin"))
+private class SchoolMessagesStore(context: Context) {
+    private val file = SchoolSecureFile(context, "school-messages-v1.bin", "sunlith-school-messages-v1", "sunlith-school-messages-v1", MAX_BYTES)
     fun load(): SchoolMessagesCache? = synchronized(LOCK) {
-        if (!file.baseFile.exists() && !File(file.baseFile.path + ".bak").exists()) return@synchronized null
-        try {
-            val data = file.openRead().use { input -> schoolRequire(input.available() <= MAX_BYTES); input.readBytes() }
-            schoolRequire(data.size >= 29 && data[0] == 1.toByte())
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, data.copyOfRange(1, 13)))
-            cipher.updateAAD(AAD)
-            val json = JSONObject(String(cipher.doFinal(data.copyOfRange(13, data.size)), Charsets.UTF_8))
-            SchoolMessagesCache.read(json).also { if (json.has("mail") || json.has("folders")) save(it) }
-        } catch (_: Exception) { clear(); null }
+        if (!file.exists()) return@synchronized null
+        try { SchoolMessagesCache.read(JSONObject(file.read())) } catch (_: Exception) { clear(); null }
     }
-    fun save(cache: SchoolMessagesCache) = synchronized(LOCK) {
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, key())
-        cipher.updateAAD(AAD)
-        val bytes = byteArrayOf(1) + cipher.iv + cipher.doFinal(cache.json().toString().toByteArray(Charsets.UTF_8))
-        schoolRequire(bytes.size <= MAX_BYTES)
-        val stream = file.startWrite()
-        try { stream.write(bytes); file.finishWrite(stream) } catch (e: Exception) { file.failWrite(stream); throw e }
-    }
+    fun save(cache: SchoolMessagesCache) = synchronized(LOCK) { file.write(cache.json().toString()) }
     fun clear() = synchronized(LOCK) { file.delete() }
-    private fun key(): SecretKey {
-        val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (store.getKey(ALIAS, null) as? SecretKey)?.let { return it }
-        return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
-            init(KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .setRandomizedEncryptionRequired(true).build())
-        }.generateKey()
-    }
     companion object {
         internal val LOCK = Any()
         internal const val MAX_BYTES = 8 * 1024 * 1024
-        private const val ALIAS = "sunlith-school-messages-v1"
-        private val AAD = "sunlith-school-messages-v1".toByteArray(Charsets.UTF_8)
     }
 }
 
-internal class SchoolMessagesManager(
-    private val context: Context,
-    private val clientFactory: (String, String) -> SchoolPortalClient = { address, language ->
-        SchoolPortalClient.routed(address, language, SchoolPortalNetwork.routes(context))
-    },
-    private val classicFactory: (SchoolPortalClient) -> SchoolClassicPortal = { client -> SchoolClassicPortal(client.base, SchoolPortalNetwork.routes(context)) },
-    private val onNoticesChanged: () -> Unit = { SchoolScheduleManager.get(context).syncNotices() },
-    private val onNewMessages: (SchoolRecord, List<SchoolAdminNotice>) -> Unit = { record, messages -> SchoolNotifications(context).messages(record, messages) },
-    private val elapsedRealtime: () -> Long = { SystemClock.elapsedRealtime() },
-) : SchoolMessagesController, SchoolNoticeProvider {
+internal class SchoolMessagesManager private constructor(private val context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mutex = Mutex()
     private val generation = AtomicLong()
     private val store = SchoolMessagesStore(context)
     private val mutableState = MutableStateFlow(SchoolMessagesState())
-    override val state: StateFlow<SchoolMessagesState> = mutableState.asStateFlow()
+    val state: StateFlow<SchoolMessagesState> = mutableState.asStateFlow()
     @Volatile private var cache: SchoolMessagesCache? = null
     @Volatile private var session: Pair<String, SchoolLogin>? = null
     @Volatile private var lastAttempt: Long? = null
@@ -177,41 +123,34 @@ internal class SchoolMessagesManager(
 
     init { scope.launch { synchronized(SchoolMessagesStore.LOCK) { cache = current(record()) }; publish(record()) } }
 
-    override suspend fun refresh() { scope.async { sync(force = true) }.await() }
-    override fun refreshSoon() { scope.launch { sync(force = false) } }
-    override suspend fun refreshForJob() { scope.async { sync(force = false, waitForActive = true) }.await() }
+    suspend fun refresh() { scope.async { sync(force = true) }.await() }
+    fun refreshSoon() { scope.launch { sync(force = false) } }
+    suspend fun refreshForJob() { scope.async { sync(force = false, waitForActive = true) }.await() }
 
     /** Cache only. Before any successful administration read, notice events already in the calendar are kept as they are. */
-    override fun items(record: SchoolRecord, term: SchoolTerm, english: Boolean): List<SchoolItem> {
-        val cached = synchronized(SchoolMessagesStore.LOCK) { cache?.takeIf { it.account == record.account && it.connection == record.connection } }
-        val today = LocalDate.now(ZoneId.of(record.zone))
-        val inTerm = { item: SchoolItem -> !item.date.isBefore(term.start) && !item.date.isAfter(term.end) }
-        if (cached?.adminAt == null) return record.baseline.filter { it.kind == SchoolNoticeInterpreter.NOTICE_KIND && inTerm(it) }
+    fun notices(record: SchoolRecord, term: SchoolTerm): SchoolNoticeEvents {
+        val cached = cached(record)
+        val inTerm = { date: LocalDate -> !date.isBefore(term.start) && !date.isAfter(term.end) }
+        if (cached?.adminAt == null) return SchoolNoticeEvents(record.baseline.filter { it.kind == SchoolNoticeInterpreter.NOTICE_KIND && inTerm(it.date) }, null)
         val notices = SchoolNoticeInterpreter.interpret(cached.admin)
         val unknownDates = unresolvedNoticeDates(cached.admin, notices, record.baseline)
         val preserved = record.baseline.filter { it.kind == SchoolNoticeInterpreter.NOTICE_KIND && it.date in unknownDates }
         val preservedIds = preserved.map { it.id }.toSet()
-        return (SchoolNoticeInterpreter.items(notices, english = false)
-            .filterNot { it.id in preservedIds } + preserved)
-            .filter { inTerm(it) && !it.date.isBefore(today.minusDays(14)) }
-    }
-
-    override fun classLifts(record: SchoolRecord, term: SchoolTerm): List<SchoolClassLift>? {
-        val cached = synchronized(SchoolMessagesStore.LOCK) { cache?.takeIf { it.account == record.account && it.connection == record.connection } }
-        if (cached?.adminAt == null) return null
-        val notices = SchoolNoticeInterpreter.interpret(cached.admin)
-        val unknownDates = unresolvedNoticeDates(cached.admin, notices, record.baseline)
+        val keepFrom = LocalDate.now(ZoneId.of(record.zone)).minusDays(SchoolScheduleManager.NOTICE_DAYS)
+        val items = (SchoolNoticeInterpreter.items(notices).filterNot { it.id in preservedIds } + preserved)
+            .filter { inTerm(it.date) && !it.date.isBefore(keepFrom) }
         // An unread or missing source is not a withdrawal. Keep only marks already on each class for that day; a
         // newly arriving class must not gain a cancellation without a read confirmation.
-        return (SchoolNoticeInterpreter.lifts(notices) + unknownDates.map { SchoolClassLift(it, null, it, preserveOnly = true) })
-            .filter { !it.date.isBefore(term.start) && !it.date.isAfter(term.end) }
+        val lifts = (SchoolNoticeInterpreter.lifts(notices) + unknownDates.map { SchoolClassLift(it, null, it, preserveOnly = true) })
+            .filter { inTerm(it.date) }
+        return SchoolNoticeEvents(items, lifts)
     }
 
     private fun unresolvedNoticeDates(admin: List<SchoolAdminNotice>, notices: List<SchoolCollegeNotice>, baseline: List<SchoolItem>): Set<LocalDate> {
         val knownDates = notices.filter { it.detailRead }.map { it.targetDate }.toSet()
         val titles = admin.filter { it.body == null }.map { it.subject }.toSet()
         val previousDates = baseline.filter { item -> item.kind == SchoolNoticeInterpreter.NOTICE_KIND &&
-            item.notes.any { note -> titles.any { note == "Objet : $it" || note == "Subject: $it" } } }.map { it.date }
+            item.notes.any { note -> titles.any { note == "Objet : $it" } } }.map { it.date }
         val interpretedDates = notices.map { it.targetDate }.toSet()
         val missingDates = baseline.filter {
             it.kind == SchoolNoticeInterpreter.NOTICE_KIND || it.collegeLift.isNotEmpty()
@@ -220,7 +159,7 @@ internal class SchoolMessagesManager(
             .filterNot { it in knownDates }.toSet()
     }
 
-    override fun clear() {
+    fun clear() {
         generation.incrementAndGet()
         active?.cancel()
         synchronized(SchoolMessagesStore.LOCK) { store.clear(); cache = null }
@@ -228,44 +167,37 @@ internal class SchoolMessagesManager(
         mutableState.value = SchoolMessagesState()
     }
 
-    override suspend fun portalLinks(): List<SchoolPortalLink> = when (val result = loadPortalLinks()) {
-        is SchoolPortalLinks.Loaded -> result.links
-        is SchoolPortalLinks.Failed -> throw SchoolFailure(when (result.status) { SchoolAdminStatus.SIGN_IN -> SchoolError.SIGN_IN; SchoolAdminStatus.UNRECOGNIZED -> SchoolError.INVALID_DATA; SchoolAdminStatus.UNAVAILABLE -> SchoolError.UNAVAILABLE; else -> SchoolError.NETWORK })
-    }
-
-    override suspend fun loadPortalLinks(): SchoolPortalLinks = scope.async {
+    suspend fun loadPortalLinks(): SchoolPortalLinks = scope.async {
         val stamp = generation.get()
         val record = record()?.takeIf { it.disconnecting == null } ?: return@async SchoolPortalLinks.Failed(SchoolAdminStatus.NOT_LOADED)
-        val client = clientFactory(record.portal, language())
+        val client = client(record)
         val result = try {
             SchoolPortalLinks.Loaded(withTimeout(60_000) { withSession(client, record) { token -> client.portalLinks(token) } }.map { SchoolPortalLink(it.first, it.second) })
         } catch (e: Exception) {
             if (e is CancellationException && e !is TimeoutCancellationException) throw e
             diagnose("links", e)
-            SchoolPortalLinks.Failed(when (reason(e)) { SchoolError.SIGN_IN, SchoolError.MFA_REQUIRED -> SchoolAdminStatus.SIGN_IN; SchoolError.NETWORK -> SchoolAdminStatus.NETWORK; SchoolError.UNAVAILABLE -> SchoolAdminStatus.UNAVAILABLE; else -> SchoolAdminStatus.UNRECOGNIZED })
+            SchoolPortalLinks.Failed(schoolError(e, SchoolError.UNAVAILABLE).adminStatus())
         }
-        val current = record()
-        if (generation.get() == stamp && current?.account == record.account && current.connection == record.connection && current.disconnecting == null) {
+        if (stillCurrent(record, stamp) != null) {
             if (result is SchoolPortalLinks.Loaded) mutableState.value = mutableState.value.copy(portalLinksAvailable = result.links.isNotEmpty())
             result
         } else SchoolPortalLinks.Failed(SchoolAdminStatus.NOT_LOADED)
     }.await()
 
-    override suspend fun resolvePortalLink(code: String): String? = scope.async {
+    suspend fun resolvePortalLink(code: String): String? = scope.async {
         val stamp = generation.get()
         val record = record() ?: return@async null
-        val client = clientFactory(record.portal, language())
+        val client = client(record)
         val link = withSession(client, record) { token ->
             if (client.portalLinks(token).none { it.first == code }) null else client.portalLink(token, code)
         }
-        val current = record()
-        if (generation.get() == stamp && current?.account == record.account && current.connection == record.connection && current.disconnecting == null) link else null
+        if (stillCurrent(record, stamp) != null) link else null
     }.await()
 
     private suspend fun sync(force: Boolean, waitForActive: Boolean = false) {
         if (waitForActive) mutex.lock() else if (!mutex.tryLock()) return
         try {
-            val now = elapsedRealtime()
+            val now = SystemClock.elapsedRealtime()
             if (!force && lastAttempt?.let { now - it < BACKGROUND_INTERVAL } == true) return
             val stamp = generation.get()
             val record = record()
@@ -279,40 +211,40 @@ internal class SchoolMessagesManager(
             mutableState.value = mutableState.value.copy(busy = true)
             var next = synchronized(SchoolMessagesStore.LOCK) { current(record) } ?: SchoolMessagesCache(record.account, record.connection)
             val previous = next
-            val client = clientFactory(record.portal, language())
+            val client = client(record)
             val previousNotices = SchoolNoticeInterpreter.interpret(next.admin)
             try {
                 val zone = ZoneId.of(record.zone)
-                val result = withTimeout(120_000) { classicFactory(client).readAdministration(record.username, record.password, next.details, LocalDate.now(zone)) }
-                next = if (result.outcome == SchoolAdminOutcome.OK) {
+                val result = withTimeout(120_000) { SchoolClassicPortal(client.base, context).readAdministration(record.username, record.password, next.details, LocalDate.now(zone)) }
+                next = if (result.outcome == SchoolAdminStatus.OK) {
                     val details = result.details
-                    next.copy(seen = next.history(), admin = result.rows.map { row ->
+                    next.copy(admin = result.rows.map { row ->
                         val d = details[row.id]
                         SchoolAdminNotice(row.id, row.date, row.subject, row.sender, d?.category.orEmpty(), d?.body, row.link != null)
                     }, details = details, adminAt = System.currentTimeMillis(), adminStatus = if (result.detailsStale) SchoolAdminStatus.NETWORK else SchoolAdminStatus.OK).remember()
-                } else next.copy(adminStatus = SchoolAdminStatus.valueOf(result.outcome.name))
+                } else next.copy(adminStatus = result.outcome)
             } catch (e: Exception) {
                 if (e is CancellationException && e !is TimeoutCancellationException) throw e
                 diagnose("admin", e)
-                next = next.copy(adminStatus = when (reason(e)) { SchoolError.SIGN_IN -> SchoolAdminStatus.SIGN_IN; SchoolError.NETWORK -> SchoolAdminStatus.NETWORK; SchoolError.UNAVAILABLE -> SchoolAdminStatus.UNAVAILABLE; else -> SchoolAdminStatus.UNRECOGNIZED })
+                next = next.copy(adminStatus = schoolError(e, SchoolError.UNAVAILABLE).adminStatus())
             }
             signInBlockedToken = if (next.adminStatus == SchoolAdminStatus.SIGN_IN) record.token else null
             val arrived = next.arrivals(previous)
             next = next.bounded()
             val committed = synchronized(SchoolMessagesStore.LOCK) {
-                val latest = record()
-                if (generation.get() != stamp || latest == null || latest.account != record.account || latest.connection != record.connection || latest.disconnecting != null) false
+                val latest = stillCurrent(record, stamp)
+                if (latest == null) false
                 else {
                     try {
                         store.save(next); cache = next; publish(latest)
-                        if (arrived.isNotEmpty()) try { onNewMessages(latest, arrived) } catch (e: Exception) { diagnose("notification", e) }
+                        if (arrived.isNotEmpty()) try { SchoolNotifications(context).messages(latest, arrived) } catch (e: Exception) { diagnose("notification", e) }
                         true
                     }
                     catch (e: Exception) { diagnose("cache", e); mutableState.value = mutableState.value.copy(adminStatus = SchoolAdminStatus.STORAGE); false }
                 }
             }
             if (!committed) return
-            if (generation.get() == stamp && SchoolNoticeInterpreter.interpret(next.admin) != previousNotices) onNoticesChanged()
+            if (generation.get() == stamp && SchoolNoticeInterpreter.interpret(next.admin) != previousNotices) SchoolScheduleManager.get(context).syncNotices()
         } finally {
             active = null
             mutableState.value = mutableState.value.copy(busy = false)
@@ -320,22 +252,20 @@ internal class SchoolMessagesManager(
         }
     }
 
-    private suspend fun <T> withSession(client: SchoolPortalClient, record: SchoolRecord, block: suspend (String) -> T): T {
-        suspend fun login(): String = client.login(record.username, record.password).also { session = record.account to it }.token
-        val known = session?.takeIf { it.first == record.account && it.second.expiresAt > System.currentTimeMillis() + 60_000 }?.second?.token
-            ?: record.token.takeIf { record.expiresAt > System.currentTimeMillis() + 60_000 } ?: login()
-        return try { block(known) } catch (e: SchoolFailure) { if (e.reason != SchoolError.SIGN_IN) throw e; block(login()) }
-    }
+    private suspend fun <T> withSession(client: SchoolPortalClient, record: SchoolRecord, block: suspend (String) -> T): T = client.signedIn(
+        session?.takeIf { it.first == record.account && it.second.expiresAt > System.currentTimeMillis() + 60_000 }?.second?.token
+            ?: record.token.takeIf { record.expiresAt > System.currentTimeMillis() + 60_000 },
+        record.username, record.password, { session = record.account to it }, block)
 
     private fun current(record: SchoolRecord?): SchoolMessagesCache? {
         if (record == null) { store.clear(); return null }
         val loaded = cache ?: store.load()
-        if (loaded != null && (loaded.account != record.account || loaded.connection != record.connection)) { store.clear(); return null }
+        if (loaded != null && !loaded.belongsTo(record)) { store.clear(); return null }
         return loaded
     }
 
     private fun publish(record: SchoolRecord?) {
-        val c = if (record == null) null else synchronized(SchoolMessagesStore.LOCK) { cache?.takeIf { it.account == record.account && it.connection == record.connection } }
+        val c = if (record == null) null else cached(record)
         if (record == null) { mutableState.value = SchoolMessagesState(busy = mutableState.value.busy); return }
         val notices = SchoolNoticeInterpreter.interpret(c?.admin.orEmpty())
         val today = LocalDate.now(ZoneId.of(record.zone))
@@ -348,14 +278,13 @@ internal class SchoolMessagesManager(
         )
     }
 
-    private fun record(): SchoolRecord? = try { SchoolStore(context).load() } catch (_: SchoolFailure) { null }
+    private fun cached(record: SchoolRecord) = synchronized(SchoolMessagesStore.LOCK) { cache?.takeIf { it.belongsTo(record) } }
+    /** The stored connection, while it is still [record]'s and was neither cleared nor disconnected since [stamp]. */
+    private fun stillCurrent(record: SchoolRecord, stamp: Long): SchoolRecord? =
+        record()?.takeIf { generation.get() == stamp && it.account == record.account && it.connection == record.connection && it.disconnecting == null }
+    private fun client(record: SchoolRecord) = SchoolPortalClient(record.portal, language(), context)
+    private fun record(): SchoolRecord? = try { SchoolStore(context).current() } catch (_: SchoolFailure) { null }
     private fun language() = context.resources.configuration.locales[0].language
-    private fun reason(e: Exception) = when (e) {
-        is SchoolFailure -> e.reason
-        is IOException, is TimeoutCancellationException -> SchoolError.NETWORK
-        is JSONException, is java.time.DateTimeException, is IllegalArgumentException -> SchoolError.INVALID_DATA
-        else -> SchoolError.UNAVAILABLE
-    }
     private fun diagnose(part: String, e: Exception) = Log.w("SunlithSchool", "Messages $part stopped type=${e.javaClass.simpleName}")
 
     companion object {

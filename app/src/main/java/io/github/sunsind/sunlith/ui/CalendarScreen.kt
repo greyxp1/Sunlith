@@ -19,8 +19,6 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -42,7 +40,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -51,7 +48,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -93,7 +89,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -139,7 +134,6 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
@@ -151,7 +145,6 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
@@ -208,7 +201,7 @@ private sealed interface AgendaRow {
  */
 private fun buildAgenda(
     from: LocalDate, to: LocalDate, index: Map<LocalDate, List<CalendarEvent>>, display: String, keep: Set<LocalDate>, monthHeaders: Boolean,
-    alwaysShow: LocalDate? = null, splitEvents: Boolean = false,
+    alwaysShow: LocalDate?, splitEvents: Boolean,
 ): List<AgendaRow> {
     val rows = mutableListOf<AgendaRow>()
     var emptyStart: LocalDate? = null
@@ -263,21 +256,16 @@ fun rememberMotion(enabled: Boolean): Boolean {
 
 internal enum class TodayDirection { Up, Down, Previous, Next }
 
-internal fun horizontalTodayDirection(today: LocalDate, first: LocalDate, last: LocalDate): TodayDirection? = when {
-    today < first -> TodayDirection.Previous
-    today > last -> TodayDirection.Next
-    else -> null
-}
-
-internal fun todayDirection(today: LocalDate, first: LocalDate, last: LocalDate): TodayDirection? = when {
-    today.isBefore(first) -> TodayDirection.Up
-    today.isAfter(last) -> TodayDirection.Down
+/** Where today lies outside [first]..[last]: above or below, or before or after when the dates run [horizontal]ly. */
+internal fun todayDirection(today: LocalDate, first: LocalDate, last: LocalDate, horizontal: Boolean = false): TodayDirection? = when {
+    today < first -> if (horizontal) TodayDirection.Previous else TodayDirection.Up
+    today > last -> if (horizontal) TodayDirection.Next else TodayDirection.Down
     else -> null
 }
 
 /** Scrolling reports visible dates without changing the selected date. Only the active page owns the report. */
 @Stable
-internal class AgendaViewport(private var awaitingToday: Boolean = false) {
+private class AgendaViewport(private var awaitingToday: Boolean = false) {
     var direction by mutableStateOf<TodayDirection?>(null)
         private set
     var reporting by mutableStateOf(false)
@@ -297,7 +285,7 @@ internal class AgendaViewport(private var awaitingToday: Boolean = false) {
 
     fun reportingIn(value: Any): Boolean = scope === value && reporting
 
-    fun report(source: Any, value: TodayDirection?, scope: Any? = null) {
+    fun report(source: Any, value: TodayDirection?, scope: Any?) {
         if (this.scope !== scope) return
         if (awaitingToday && value != null) {
             suppressed = source to value
@@ -321,6 +309,44 @@ internal class AgendaViewport(private var awaitingToday: Boolean = false) {
         owner = null
         direction = null
         reporting = false
+    }
+}
+
+/**
+ * First date of a rolling 3- or 5-day timeline. It stays while the selected date is one of the shown days. A date
+ * outside the window starts a new one. Changing the size keeps the start when the selection still fits, and
+ * otherwise ends the window on the selection, so the days already in view stay in view.
+ */
+private fun rollingWindowStart(start: LocalDate?, previousSize: Int, selected: LocalDate, size: Int): LocalDate {
+    if (start != null && !selected.isBefore(start) && !selected.isAfter(start.plusDays(size - 1L))) return start
+    if (start != null && previousSize != size && !selected.isBefore(start) && !selected.isAfter(start.plusDays(previousSize - 1L))) {
+        return selected.minusDays(size - 1L)
+    }
+    return selected
+}
+
+private fun weekTimelineDates(date: LocalDate, days: Int, mondayFirst: Boolean, workweek: Boolean): List<LocalDate> {
+    val start = when {
+        workweek && days == 5 -> weekStart(date, true)
+        days < 7 -> date
+        else -> weekStart(date, mondayFirst)
+    }
+    return (0L until days.toLong()).map { start.plusDays(it) }
+}
+
+private class WindowStart(var start: LocalDate? = null, var size: Int = 0) {
+    companion object {
+        val Saver = listSaver<WindowStart, Long>(
+            save = { listOf(it.start?.toEpochDay() ?: Long.MIN_VALUE, it.size.toLong()) },
+            restore = { WindowStart(if (it[0] == Long.MIN_VALUE) null else LocalDate.ofEpochDay(it[0]), it[1].toInt()) },
+        )
+    }
+
+    fun startFor(selected: LocalDate, days: Int): LocalDate {
+        val next = rollingWindowStart(start, size, selected, days)
+        start = next
+        size = days
+        return next
     }
 }
 
@@ -351,19 +377,6 @@ private class CalendarContext(
         ViewMode.Week -> Math.floorDiv(weekStart(vm.selectedDate, vm.weekStartsMonday).toEpochDay(), 7L)
         ViewMode.Day -> vm.selectedDate.toEpochDay()
     }
-    /** The date that represents the current period (0), or the previous (-1) or next (1) period, matching [SunlithViewModel.step]. */
-    fun dateAt(k: Int): LocalDate {
-        val selected = vm.selectedDate
-        return when (vm.viewMode) {
-            ViewMode.Month -> if (k == 0) selected else {
-                val m = YearMonth.from(selected).plusMonths(k.toLong())
-                if (m == YearMonth.from(today)) today else m.atDay(1)
-            }
-            ViewMode.Week -> selected.plusWeeks(k.toLong())
-            ViewMode.Day -> selected.plusDays(k.toLong())
-        }
-    }
-
     fun dateInPeriod(period: Long): LocalDate = when (vm.viewMode) {
         ViewMode.Month -> {
             val month = YearMonth.of(Math.floorDiv(period, 12L).toInt(), Math.floorMod(period, 12L).toInt() + 1)
@@ -439,8 +452,10 @@ fun CalendarScreen(vm: SunlithViewModel, modifier: Modifier = Modifier) {
         ViewMode.Week -> vm.weekLayout
         ViewMode.Day -> vm.activeDayLayout
     }
+    val timelineDays = weekTimelineDates(if (windowDays > 0) windowStart else vm.selectedDate, vm.visibleWeekDays, vm.weekStartsMonday, workweek)
     // Selecting a Week header only changes its highlight. Explicit Continuous navigation changes its request.
     val viewportSelection: Any = when {
+        mode == ViewMode.Week && viewportLayout == "timeline" -> timelineDays
         mode == ViewMode.Week && viewportLayout == "continuous" -> vm.timelineNavigationRequest
         else -> vm.selectedDate
     }
@@ -478,31 +493,24 @@ fun CalendarScreen(vm: SunlithViewModel, modifier: Modifier = Modifier) {
     val c = remember(vm, f, dayMeasurer, today, motion, swipe, collapse, viewport, viewportScope, highlightToday, timelineScroll, timelineMinute, timelineFocus, onFocusHandled) {
         CalendarContext(vm, f, dayMeasurer, today, motion, swipe, collapse, viewport, viewportScope, highlightToday, timelineScroll, timelineMinute, timelineTodayHandled, timelineFocus, onFocusHandled)
     }
-    val courseColors = rememberCourseColors(vm.eventsByDay, vm.courseColorSlots)
 
-    // A swipe or arrow on its way to another period already points Today from where it will land, so the arrow never
-    // waits for the slide to settle.
-    val periodDirection by remember(vm, mode, c, today) { derivedStateOf {
-        val landing = c.dateAt(swipe.previewSteps)
-        when (mode) {
-            ViewMode.Month -> YearMonth.from(landing).let { horizontalTodayDirection(today, it.atDay(1), it.atEndOfMonth()) }
-            ViewMode.Week -> when (vm.weekLayout) {
-                "continuous" -> horizontalTodayDirection(today, vm.timelineViewportStart ?: vm.selectedDate, vm.timelineViewportEnd ?: vm.selectedDate)
-                else -> weekStart(landing, vm.weekStartsMonday).let { horizontalTodayDirection(today, it, it.plusDays(6)) }
-            }
-            ViewMode.Day -> horizontalTodayDirection(today, landing, landing)
+    val periodDirection by remember(vm, mode, c, today, timelineDays) { derivedStateOf { when (mode) {
+        ViewMode.Month -> todayDirection(today, vm.month.atDay(1), vm.month.atEndOfMonth(), horizontal = true)
+        ViewMode.Week -> when (vm.weekLayout) {
+            "continuous" -> todayDirection(today, vm.timelineViewportStart ?: vm.selectedDate, vm.timelineViewportEnd ?: vm.selectedDate, horizontal = true)
+            "timeline" -> timelineDays.let { todayDirection(today, it.first(), if (workweek) it.first().plusDays(6) else it.last(), horizontal = true) }
+            else -> weekStart(vm.selectedDate, vm.weekStartsMonday).let { todayDirection(today, it, it.plusDays(6), horizontal = true) }
         }
-    } }
+        ViewMode.Day -> todayDirection(today, vm.selectedDate, vm.selectedDate, horizontal = true)
+    } } }
     // A date opened from the Month grid shows only that date, with Back as the way out and no Today shortcut.
-    val measuredDirection = viewport.direction.takeIf { viewport.reportingIn(viewportScope) && swipe.previewSteps == 0 }
+    val measuredDirection = viewport.direction.takeIf { viewport.reportingIn(viewportScope) }
     val direction = if (vm.dayDrilldown) null
     else if (mode == ViewMode.Day && vm.activeDayLayout == "schedule") measuredDirection
     else periodDirection ?: if (mode != ViewMode.Day) measuredDirection else null
 
-    CompositionLocalProvider(LocalCourseColors provides courseColors, LocalTimelineTint provides vm.timelineTint,
-        LocalCurrentMinute provides currentMinute) {
     Scaffold(
-        modifier = modifier.semantics { testTagsAsResourceId = true },
+        modifier = modifier,
         containerColor = p.background,
         topBar = {
             Column(Modifier.background(p.background).statusBarsPadding()) {
@@ -523,7 +531,7 @@ fun CalendarScreen(vm: SunlithViewModel, modifier: Modifier = Modifier) {
             ) { Icon(Icons.Outlined.Add, stringResource(R.string.action_new_event)) }
         },
     ) { pad ->
-        Box(Modifier.fillMaxSize().padding(pad).semantics { testTagsAsResourceId = true }
+        Box(Modifier.fillMaxSize().padding(pad)
             .then(if (mode == ViewMode.Week) Modifier else Modifier.ignoreMultiplePointers()).pointerInput(viewport) {
             awaitPointerEventScope {
                 while (true) {
@@ -549,7 +557,6 @@ fun CalendarScreen(vm: SunlithViewModel, modifier: Modifier = Modifier) {
                 }, Modifier.align(Alignment.BottomCenter))
             }
         }
-    }
     }
 
     if (showPicker) DatePick(if (vm.continuousTimeline()) vm.timelineActionDate() else vm.selectedDate, { showPicker = false }) { vm.selectAndFocus(it) }
@@ -606,7 +613,7 @@ private fun Header(
             if (vm.hasDayParent) IconButton(onClick = vm::back) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.action_back), tint = p.ink) }
             if (arrows) IconButton(onClick = { onStep(-1) }) { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, prevLabel, tint = p.ink) }
             Column(
-                Modifier.weight(1f).testTag("calendar_period_title").clip(RoundedCornerShape(8.dp))
+                Modifier.weight(1f).clip(RoundedCornerShape(8.dp))
                     .clickable(onClickLabel = jumpLabel, role = Role.Button, onClick = onTitle)
                     .padding(horizontal = 8.dp, vertical = 4.dp)
                     .semantics {
@@ -634,7 +641,7 @@ private fun Header(
                 if (tabs) ModeTabs(vm, Modifier.width(168.dp), onLayoutChooser, chooserMenu)
                 else ViewMenu(vm, compactMenu, searchInMenu, onLayoutChooser, chooserMenu)
             }
-            if (showTodoIcon) IconButton(onClick = vm::openTodos, modifier = Modifier.testTag("calendar_todo_action")) {
+            if (showTodoIcon) IconButton(onClick = vm::openTodos) {
                 Icon(androidx.compose.material.icons.Icons.Outlined.Checklist, stringResource(R.string.todo_title), tint = p.ink)
             }
             if (drilldown) DrilldownLayoutToggle(vm)
@@ -647,7 +654,7 @@ private fun Header(
 
 private val viewLabels = listOf(ViewMode.Month to R.string.view_month, ViewMode.Week to R.string.view_week, ViewMode.Day to R.string.view_day)
 
-private fun layoutLabel(choice: String): Int = when (choice) {
+internal fun layoutLabel(choice: String): Int = when (choice) {
     "split" -> R.string.layout_preset_agenda
     "full" -> R.string.layout_preset_grid
     "list", "cards" -> R.string.settings_week_list
@@ -664,23 +671,28 @@ private fun LayoutChooser(vm: SunlithViewModel, mode: ViewMode, onDismiss: () ->
     val p = LocalPalette.current
     val current = vm.currentLayoutChoice(mode)
     val viewName = stringResource(viewLabels.first { it.first == mode }.second)
-    DropdownMenu(
-        expanded = true, onDismissRequest = onDismiss, containerColor = p.surface,
-        modifier = Modifier.semantics { testTagsAsResourceId = true }.testTag("calendar_layout_chooser"),
-    ) {
-        Text(stringResource(R.string.calendar_layout_chooser_title, viewName),
-            Modifier.padding(horizontal = 16.dp, vertical = 8.dp).semantics { heading() },
-            color = p.muted, style = MaterialTheme.typography.labelLarge)
-        Column(Modifier.selectableGroup()) {
-            layoutChoices(mode).forEach { choice ->
-                val on = choice == current
-                DropdownMenuItem(
-                    text = { Text(stringResource(layoutLabel(choice)), color = p.ink, style = MaterialTheme.typography.bodyLarge) },
-                    onClick = { onChoose(choice, null) },
-                    trailingIcon = { RadioButton(on, onClick = null, colors = RadioButtonDefaults.colors(selectedColor = p.accent, unselectedColor = p.faint)) },
-                    modifier = Modifier.heightIn(min = 48.dp).testTag("layout_choice_$choice").semantics { selected = on; role = Role.RadioButton },
-                )
-                if (mode == ViewMode.Week && choice == "continuous") ColumnCountChoices(if (on) vm.visibleWeekDays else null) { onChoose(choice, it) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = p.surface,
+        title = { Text(stringResource(R.string.calendar_layout_chooser_title, viewName), color = p.ink,
+            modifier = Modifier.semantics { heading() }) },
+        text = {
+            Column(Modifier.selectableGroup().verticalScroll(rememberScrollState())) {
+                layoutChoices(mode).forEach { choice ->
+                    val on = choice == current
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(RoundedCornerShape(12.dp))
+                            .background(if (on) p.raised else Color.Transparent)
+                            
+                            .selectable(on, role = Role.RadioButton) { onChoose(choice) }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(stringResource(layoutLabel(choice)), Modifier.weight(1f), color = p.ink,
+                            style = MaterialTheme.typography.bodyLarge)
+                        RadioButton(on, onClick = null, colors = RadioButtonDefaults.colors(selectedColor = p.accent, unselectedColor = p.faint))
+                    }
+                }
             }
         }
     }
@@ -714,7 +726,7 @@ private fun DrilldownLayoutToggle(vm: SunlithViewModel) {
     val next = if (vm.drilldownLayout == "timeline") "cards" else "timeline"
     val label = stringResource(if (next == "cards") R.string.settings_week_list else R.string.settings_day_all_hours)
     IconButton(onClick = { vm.changeDrilldownLayout(next) },
-        modifier = Modifier.testTag("calendar_day_layout_toggle").semantics { contentDescription = label }) {
+        modifier = Modifier.semantics { contentDescription = label }) {
         Icon(if (next == "cards") Icons.Outlined.ViewAgenda else Icons.Outlined.Schedule, null, tint = LocalPalette.current.ink)
     }
 }
@@ -724,10 +736,10 @@ private fun DrilldownLayoutToggle(vm: SunlithViewModel) {
  * for a frame or two before Details was drawn. Here Details opens with no fade, and the chooser leaves only after
  * the frame that draws Details, so the screen goes straight from the chooser to the event.
  */
-private class ChooserHandoff(val open: (CalendarEvent) -> Unit, val close: () -> Unit)
+internal class ChooserHandoff(val open: (CalendarEvent) -> Unit, val close: () -> Unit)
 
 @Composable
-private fun rememberChooserHandoff(vm: SunlithViewModel, dismiss: () -> Unit): ChooserHandoff {
+internal fun rememberChooserHandoff(vm: SunlithViewModel, dismiss: () -> Unit): ChooserHandoff {
     val scope = rememberCoroutineScope()
     val currentDismiss by rememberUpdatedState(dismiss)
     return remember(vm, scope) {
@@ -763,7 +775,7 @@ private fun rememberChooserHandoff(vm: SunlithViewModel, dismiss: () -> Unit): C
 private fun HeaderActionsMenu(vm: SunlithViewModel) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        IconButton(onClick = { expanded = true }, modifier = Modifier.testTag("calendar_header_actions")) {
+        IconButton(onClick = { expanded = true }) {
             Icon(Icons.Outlined.MoreVert, stringResource(R.string.todo_actions), tint = LocalPalette.current.ink)
         }
         DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
@@ -788,7 +800,7 @@ private fun ModeTabs(vm: SunlithViewModel, modifier: Modifier = Modifier, onLong
             Box(
                 Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(8.dp))
                     .background(if (active) p.raised else Color.Transparent)
-                    .testTag("calendar_tab_${mode.name.lowercase()}")
+                    
                     .combinedClickable(role = Role.Tab, onLongClickLabel = chooseLabel, onLongClick = { onLongPress(mode) }) { vm.changeViewMode(mode) }
                     .semantics { selected = active },
                 contentAlignment = Alignment.Center,
@@ -811,7 +823,7 @@ private fun ViewMenu(
     val current = viewLabels.first { it.first == vm.viewMode }.second
     val switchLabel = stringResource(R.string.calendar_switch_view)
     val chooseLabel = stringResource(R.string.calendar_layout_chooser_action)
-    val control = Modifier.testTag("calendar_view_menu")
+    val control = Modifier
         .clip(RoundedCornerShape(12.dp))
         .combinedClickable(role = Role.Button, onLongClickLabel = chooseLabel,
             onLongClick = { onLayoutChooser(vm.viewMode) }, onClick = { expanded = true })
@@ -831,11 +843,10 @@ private fun ViewMenu(
                 Icon(Icons.Outlined.ArrowDropDown, contentDescription = null, tint = p.muted, modifier = Modifier.size(16.dp))
             }
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false },
-            modifier = Modifier.semantics { testTagsAsResourceId = true }) {
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             viewLabels.forEach { (mode, label) ->
                 Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                    .testTag("calendar_menu_${mode.name.lowercase()}")
+                    
                     .combinedClickable(role = Role.Button, onLongClickLabel = chooseLabel,
                         onLongClick = { expanded = false; onLayoutChooser(mode) },
                         onClick = { expanded = false; vm.changeViewMode(mode) })
@@ -884,7 +895,7 @@ private fun TodayPillContent(direction: TodayDirection, onClick: () -> Unit) {
     val shape = RoundedCornerShape(50)
     Box(
         Modifier.padding(start = 88.dp, end = 88.dp, bottom = 20.dp).minimumInteractiveComponentSize()
-            .testTag("calendar_today_${direction.name.lowercase()}")
+            
             .shadow(3.dp, shape).clip(shape).background(p.surface).border(1.dp, p.line, shape)
             .clickable(role = Role.Button, onClick = onClick)
             .clearAndSetSemantics { contentDescription = label; role = Role.Button }
@@ -1041,9 +1052,9 @@ private fun DayPeriod(c: CalendarContext, modifier: Modifier, date: LocalDate, a
     Column(modifier) {
         if (layout != "cards") StatusCards(vm, Modifier.padding(horizontal = 12.dp))
         // From the Month grid only the chosen date is shown, so there is no week strip to pick another one.
-        if (vm.dayDrilldown) Box(Modifier.weight(1f).fillMaxWidth().testTag("calendar_day_drilldown")) { body() }
+        if (vm.dayDrilldown) Box(Modifier.weight(1f).fillMaxWidth()) { body() }
         else CollapsingHeader(c.collapse, Modifier.weight(1f), header = {
-            Column(Modifier.testTag("calendar_day_picker")) {
+            Column {
                 WeekdayLabels(vm.weekStartsMonday, c.f)
                 WeekStrip(c, date, active = active)
                 HorizontalDivider(color = p.line)
@@ -1109,7 +1120,7 @@ private fun TimelinePeriod(c: CalendarContext, days: List<LocalDate>, k: Int, sh
             sharedMinute = c.timelineMinute,
             handledTodayRequest = c.timelineTodayHandled,
             onDirectionChanged = onDirectionChanged,
-            onZoomChange = if (showHeaders) vm::changeWeekTimelineZoom else null,
+            onZoomChange = if (showHeaders) ({ vm.weekTimelineZoom = it }) else null,
         ) {
             val selected = vm.selectedDate.coerceIn(first, last)
             Agenda(c, first, last, "all", selected, continuous = false, active = k == 0, compact = vm.viewMode == ViewMode.Day)
@@ -1163,7 +1174,7 @@ private fun CollapsingHeader(state: HeaderCollapse, modifier: Modifier, header: 
     Layout(
         content = {
             Box(
-                Modifier.testTag("calendar_grid").then(
+                Modifier.then(
                     if (state.enabled) Modifier.draggable(rememberDraggableState { state.consume(it) }, Orientation.Vertical)
                     else Modifier.verticalScroll(headerScroll),
                 ),
@@ -1497,44 +1508,50 @@ private fun AgendaList(
         DisposableEffect(c.viewport, owner) { onDispose { c.viewport.release(owner) } }
     }
 
-    var lastDirection by remember { mutableStateOf<Boolean?>(null) }
-    val extend: (Boolean) -> Unit = { forward ->
-        if (vm.loadError != null) vm.reload() else { lastDirection = forward; vm.extendAgenda(forward) }
+    // Loads more dates near either end while the user scrolls that way, or drags past an end the list cannot scroll
+    // beyond. It fires once per scroll position, so a sparse calendar never pages on its own while the list is at rest.
+    val focusing by rememberUpdatedState(scheduleFocus != null)
+    val canExtend by rememberUpdatedState(continuous && active)
+    val firedAt = remember { arrayOfNulls<Any>(1) }
+    val extend: (Boolean) -> Unit = remember(listState) {
+        { forward ->
+            val position = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key to listState.firstVisibleItemScrollOffset
+            if (canExtend && !focusing && pending == null && !vm.extendingAgenda && vm.loadError == null && position != firedAt[0]) {
+                firedAt[0] = position
+                vm.extendAgenda(forward)
+            }
+        }
     }
     if (continuous && active) {
-        val focusing by rememberUpdatedState(scheduleFocus != null)
         LaunchedEffect(listState) {
-            var firedAt: Any? = null
             snapshotFlow {
                 val info = listState.layoutInfo
                 val visible = info.visibleItemsInfo
                 if (!listState.isScrollInProgress || focusing || pending != null || visible.isEmpty() || vm.extendingAgenda || vm.loadError != null) null
-                else {
-                    val position = visible.first().key to listState.firstVisibleItemScrollOffset
-                    when {
-                        visible.first().index <= EDGE_ROWS && listState.lastScrolledBackward -> false to position
-                        visible.last().index >= info.totalItemsCount - 1 - EDGE_ROWS && listState.lastScrolledForward -> true to position
-                        else -> null
-                    }
+                else when {
+                    visible.first().index <= EDGE_ROWS && listState.lastScrolledBackward -> false
+                    visible.last().index >= info.totalItemsCount - 1 - EDGE_ROWS && listState.lastScrolledForward -> true
+                    else -> null
+                }?.let { it to (visible.first().key to listState.firstVisibleItemScrollOffset) }
+            }.collect { request -> if (request != null) extend(request.first) }
+        }
+    }
+    val edgePull = remember(listState) {
+        object : NestedScrollConnection {
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput) {
+                    if (available.y > 0f && !listState.canScrollBackward) extend(false)
+                    else if (available.y < 0f && !listState.canScrollForward) extend(true)
                 }
-            }.collect { request ->
-                // Fire once per scroll position, so a sparse calendar never pages on its own while the list is at rest.
-                if (request == null || request.second == firedAt) return@collect
-                firedAt = request.second
-                lastDirection = request.first
-                vm.extendAgenda(request.first)
+                return Offset.Zero
             }
         }
     }
-
-    val atMeasuredStart by remember(listState) { derivedStateOf {
-        listState.layoutInfo.visibleItemsInfo.firstOrNull()?.index == 0 && !listState.canScrollBackward
-    } }
     val listContent: @Composable (Dp) -> Unit = { gutter ->
         // The list is always drawn. Hiding it until a focus was positioned showed an empty body for whole reloads.
-        Box(Modifier.fillMaxSize().then(if (compact) Modifier.testTag("calendar_schedule") else Modifier)) {
+        Box(Modifier.fillMaxSize().nestedScroll(edgePull)) {
             LazyColumn(
-                Modifier.fillMaxSize().testTag("calendar_agenda").onGloballyPositioned { viewportTop = it.positionInRoot().y }, state = listState,
+                Modifier.fillMaxSize().onGloballyPositioned { viewportTop = it.positionInRoot().y }, state = listState,
                 contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 104.dp),
             ) {
                 items(rows, key = { it.key }, contentType = { it::class }) { row ->
@@ -1555,17 +1572,6 @@ private fun AgendaList(
                         Text(stringResource(R.string.no_events), color = p.muted, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(vertical = 24.dp, horizontal = 4.dp))
                     }
                 }
-                if (continuous) {
-                    item(key = "edge-later") {
-                        AgendaEdge(vm.extendingAgenda && lastDirection == true, R.string.calendar_show_later, Modifier.fillMaxWidth()) { extend(true) }
-                    }
-                }
-            }
-            if (continuous && scheduleFocus == null && pending == null && atMeasuredStart) {
-                AgendaEdge(
-                    vm.extendingAgenda && lastDirection == false, R.string.calendar_show_earlier,
-                    Modifier.align(Alignment.TopCenter).padding(top = 4.dp), pill = true,
-                ) { extend(false) }
             }
         }
     }
@@ -1579,29 +1585,6 @@ private fun AgendaList(
             listContent(gutter)
         }
     } else listContent(0.dp)
-
-}
-
-/** End of the loaded dates: a small spinner while loading, otherwise a button to load more (also the retry after an error). */
-@Composable
-private fun AgendaEdge(loading: Boolean, label: Int, modifier: Modifier, pill: Boolean = false, onClick: () -> Unit) {
-    val p = LocalPalette.current
-    val shape = RoundedCornerShape(50)
-    Box(
-        modifier.heightIn(min = 56.dp).then(
-            if (pill) Modifier.padding(4.dp).shadow(2.dp, shape).clip(shape).background(p.surface).border(1.dp, p.line, shape) else Modifier,
-        ),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (loading) {
-            val description = stringResource(R.string.calendar_loading_dates)
-            Box(Modifier.size(48.dp).semantics { contentDescription = description }, contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(Modifier.size(20.dp), color = p.muted, strokeWidth = 2.dp)
-            }
-        } else {
-            TextButton(onClick = onClick, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(label), maxLines = 2, textAlign = TextAlign.Center) }
-        }
-    }
 }
 
 @Composable
@@ -1711,7 +1694,7 @@ private fun ScheduleDay(row: AgendaRow.Day, isSelected: Boolean, isToday: Boolea
                             .then(if (e.key() == focusTarget) Modifier.onGloballyPositioned { onFocusPosition(it.positionInRoot().y) } else Modifier)
                             .focusRing(e.key() == highlightedEvent, p.ink, RoundedCornerShape(8.dp), motion)
                             .clickable(role = Role.Button) { vm.open(Screen.Details(e)) }
-                            .testTag("schedule_event_${e.id}")
+                            
                             .padding(vertical = 8.dp, horizontal = 4.dp),
                         verticalAlignment = Alignment.Top,
                     ) {
@@ -1787,7 +1770,7 @@ private fun DayView(vm: SunlithViewModel, day: LocalDate, events: List<CalendarE
     val stacked = LocalDensity.current.fontScale > 1.3f
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val timeWidth = rememberTimeGutter(timed.map { f.time(it.startMillis) }, timeStyle, 64.dp, (maxWidth - 32.dp) * 0.4f)
-        LazyColumn(Modifier.fillMaxSize().testTag("calendar_day_cards"), state = listState, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 104.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 104.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item(key = "status") { StatusCards(vm) }
             item(key = "head") {
                 Column(Modifier.padding(vertical = 8.dp).semantics(mergeDescendants = true) { heading() }) {
@@ -1809,11 +1792,11 @@ private fun DayView(vm: SunlithViewModel, day: LocalDate, events: List<CalendarE
                 Row(verticalAlignment = Alignment.Top) {
                     if (!stacked && (index == 0 || timed[index - 1].startMillis != e.startMillis)) {
                         Text(
-                            f.time(e.startMillis), Modifier.width(timeWidth).padding(top = 12.dp, end = 8.dp).testTag("day_time_${e.id}"),
+                            f.time(e.startMillis), Modifier.width(timeWidth).padding(top = 12.dp, end = 8.dp),
                             color = p.muted, style = timeStyle, maxLines = 2, overflow = TextOverflow.Ellipsis,
                         )
                     } else if (!stacked) Spacer(Modifier.width(timeWidth))
-                    CalendarEventCard(e, day, f, onClick = { vm.open(Screen.Details(e)) }, modifier = Modifier.weight(1f).testTag("day_event_${e.id}")
+                    CalendarEventCard(e, day, f, onClick = { vm.open(Screen.Details(e)) }, modifier = Modifier.weight(1f)
                         .focusRing(e.key() == focusedEvent, eventColors(e).content, RoundedCornerShape(10.dp), motion))
                 }
             }

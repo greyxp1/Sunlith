@@ -6,24 +6,22 @@ import io.github.sunsind.sunlith.data.CalendarEvent
 import io.github.sunsind.sunlith.data.SchoolEventAbsence
 import io.github.sunsind.sunlith.data.SchoolEventInfo
 import io.github.sunsind.sunlith.data.SchoolEventPeriod
+import io.github.sunsind.sunlith.data.values
 
 internal object SchoolCalendarPresentation {
     fun annotate(context: Context, events: List<CalendarEvent>): List<CalendarEvent> {
         if (events.isEmpty()) return events
-        val record = try { SchoolStore(context).load() } catch (_: SchoolFailure) { null } ?: return events
+        val record = try { SchoolStore(context).current() } catch (_: SchoolFailure) { null } ?: return events
         val entries = (record.ledger + record.journal?.after.orEmpty()).filter { it.rowId >= 0 }.groupBy { it.rowId }
         val ids = events.filter { it.calendarId == record.calendarId && it.id in entries }.map { it.id }.distinct()
         if (ids.isEmpty()) return events
         val writer = SchoolCalendarWriter(context)
+        val columns = arrayOf(Events._ID, *SchoolCalendarWriter.COLUMNS)
         val rows = ids.chunked(300).flatMap { chunk ->
-            context.contentResolver.query(Events.CONTENT_URI, arrayOf(Events._ID, *SchoolCalendarWriter.COLUMNS),
+            context.contentResolver.query(Events.CONTENT_URI, columns,
                 "${Events.CALENDAR_ID}=? AND ${Events._ID} IN (${chunk.joinToString(",") { "?" }}) AND ${Events.DELETED}=0",
                 (listOf(record.calendarId.toString()) + chunk.map(Long::toString)).toTypedArray(), null)?.use { cursor ->
-                buildList {
-                    while (cursor.moveToNext()) add((arrayOf(Events._ID, *SchoolCalendarWriter.COLUMNS)).associateWith { name ->
-                        cursor.getColumnIndex(name).let { if (it < 0 || cursor.isNull(it)) null else cursor.getString(it) }
-                    })
-                }
+                buildList { while (cursor.moveToNext()) add(cursor.values(columns)) }
             }.orEmpty()
         }.associateBy { it[Events._ID]?.toLongOrNull() }
         return events.map { event ->

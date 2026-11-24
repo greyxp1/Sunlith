@@ -1,6 +1,5 @@
 package io.github.sunsind.sunlith.data
 
-import android.content.Context
 import biweekly.Biweekly
 import biweekly.ICalendar
 import biweekly.component.VAlarm
@@ -30,19 +29,19 @@ data class ImportPreview(
     val total: Int,
     val importable: Int,
     val skipped: Int,
-    val messages: List<String> = emptyList(),
+    val messages: List<String>,
 )
 
 data class ImportReport(
     val imported: Int,
     val duplicates: Int,
     val skipped: Int,
-    val messages: List<String> = emptyList(),
+    val messages: List<String>,
 )
 
-class IcsTransfer(context: Context, private val repository: CalendarRepository) {
-    var exportWarnings: List<String> = emptyList()
-        private set
+data class ExportReport(val exported: Int, val skipped: Int)
+
+class IcsTransfer(private val repository: CalendarRepository) {
 
     fun inspect(input: InputStream): ImportPreview {
         val parsed = IcsCodec.parse(input)
@@ -89,31 +88,25 @@ class IcsTransfer(context: Context, private val repository: CalendarRepository) 
         return ImportReport(imported, duplicates, skipped, messages)
     }
 
-    fun export(output: OutputStream, calendarIds: Set<Long>): Int {
-        exportWarnings = emptyList()
+    /** Writes every event that can be exported safely. A series with malformed provider data is skipped as a whole. */
+    fun export(output: OutputStream, calendarIds: Set<Long>): ExportReport {
         require(calendarIds.isNotEmpty()) { "Choose at least one calendar to export." }
         val accessible = repository.calendars().mapTo(mutableSetOf()) { it.id }
         require(calendarIds.all { it in accessible }) { "One of the selected calendars is no longer available." }
         val records = repository.storedEvents(calendarIds)
         require(records.size <= IcsCodec.MAX_EVENTS) { "Export at most ${IcsCodec.MAX_EVENTS} events at a time." }
-        val byId = records.associateBy { it.draft.id }
-        val bySyncId = records.filter { it.syncId != null }.associateBy { it.syncId }
-        fun groupUid(record: StoredEvent): String = record.originalId?.let { byId[it]?.uid }
-            ?: record.originalSyncId?.let { bySyncId[it]?.uid } ?: record.uid
+        val parentOf = IcsCodec.parents(records)
+        fun groupUid(record: StoredEvent): String = parentOf(record)?.uid ?: record.uid
         val invalidGroups = records.filter { it.invalidReason != null }.mapTo(mutableSetOf(), ::groupUid)
-        val valid = records.filter { groupUid(it) !in invalidGroups }
-        val skipped = records.filter { groupUid(it) in invalidGroups }
-        if (skipped.isNotEmpty()) exportWarnings = listOf("${skipped.size} events were skipped because their provider data or recurring series could not be exported safely.") +
-            skipped.take(IcsCodec.MAX_MESSAGES - 1).map { "${it.draft.title.ifBlank { "Event ${it.draft.id}" }}: ${it.invalidReason ?: "belongs to a recurring series with malformed provider data"}" }
-        val calendar = IcsCodec.buildCalendar(valid)
-        Biweekly.write(calendar).go(output)
+        val (skipped, valid) = records.partition { groupUid(it) in invalidGroups }
+        Biweekly.write(IcsCodec.buildCalendar(valid)).go(output)
         output.flush()
-        return valid.size
+        return ExportReport(valid.size, skipped.size)
     }
 }
 
 internal data class ParsedImport(val total: Int, val events: List<ImportEvent>, val messages: List<String>)
-internal data class ImportEvent(val uid: String, val draft: EventDraft, val hasSourceUid: Boolean = true)
+internal data class ImportEvent(val uid: String, val draft: EventDraft, val hasSourceUid: Boolean)
 
 internal object IcsCodec {
     const val MAX_BYTES = 5 * 1024 * 1024
@@ -256,15 +249,21 @@ internal object IcsCodec {
         return ICalDate(DateTimeComponents(date.year, date.monthValue, date.dayOfMonth), false)
     }
 
+    /** Finds the series a recurring exception belongs to among [records]. */
+    fun parents(records: List<StoredEvent>): (StoredEvent) -> StoredEvent? {
+        val byId = records.associateBy { it.draft.id }
+        val bySyncId = records.filter { it.syncId != null }.associateBy { it.syncId }
+        return { stored -> stored.originalId?.let(byId::get) ?: stored.originalSyncId?.let(bySyncId::get) }
+    }
+
     fun buildCalendar(records: List<StoredEvent>): ICalendar {
         val calendar = ICalendar()
         calendar.setProductId("-//SunSinD//Sunlith Calendar//EN")
-        val byId = records.associateBy { it.draft.id }
-        val bySyncId = records.filter { it.syncId != null }.associateBy { it.syncId }
+        val parentOf = parents(records)
         for (stored in records) {
             val draft = stored.draft
             val event = VEvent()
-            val parent = stored.originalId?.let(byId::get) ?: stored.originalSyncId?.let(bySyncId::get)
+            val parent = parentOf(stored)
             require(stored.originalInstanceTime == null || parent != null) { "A recurring exception is missing its source series. Export it from your calendar service." }
             event.setUid(parent?.uid ?: stored.uid)
             event.setSummary(draft.title)

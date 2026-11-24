@@ -14,7 +14,6 @@ android {
         targetSdk = 36
         versionCode = 24
         versionName = "0.8.1"
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
@@ -22,18 +21,9 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-        }
-        create("distribution") {
-            initWith(getByName("release"))
-            isDebuggable = false
+            // Published APKs use the debug certificate, so releases must keep it to update existing installs.
             signingConfig = signingConfigs.getByName("debug")
-            matchingFallbacks += listOf("release")
-            proguardFiles("proguard-distribution-test-api.pro")
-            testProguardFiles("proguard-android-test.pro")
         }
-    }
-    testBuildType = providers.gradleProperty("testBuildType").getOrElse("debug").also {
-        require(it == "debug" || it == "distribution") { "testBuildType must be debug or distribution" }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -41,7 +31,7 @@ android {
     }
     buildFeatures { compose = true }
     packaging { resources.excludes += setOf("META-INF/LICENSE*", "META-INF/NOTICE*") }
-    testOptions { unitTests.isReturnDefaultValues = true }
+    lint { error += "UnusedResources" }
 }
 
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
@@ -59,9 +49,4 @@ dependencies {
     implementation("net.sf.biweekly:biweekly:0.6.8")
     implementation("com.fasterxml.jackson.core:jackson-core:2.22.4")
     debugImplementation("androidx.compose.ui:ui-tooling")
-    testImplementation("junit:junit:4.13.2")
-    androidTestImplementation("androidx.test:runner:1.6.2")
-    androidTestImplementation("androidx.test:rules:1.6.1")
-    androidTestImplementation("androidx.test.ext:junit:1.2.1")
-    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
 }

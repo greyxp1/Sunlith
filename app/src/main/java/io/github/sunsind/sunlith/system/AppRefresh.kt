@@ -12,6 +12,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.provider.CalendarContract
 import androidx.core.content.ContextCompat
+import io.github.sunsind.sunlith.data.DeviceCalendar
 import io.github.sunsind.sunlith.widget.AgendaWidgetReceiver
 import io.github.sunsind.sunlith.school.SchoolScheduleManager
 import java.util.concurrent.Executors
@@ -43,7 +44,7 @@ class CalendarChangeJobService : JobService() {
                 if (!stopped.get()) AgendaWidgetReceiver.updateAll(this)
                 if (!stopped.get()) ReminderScheduler.reschedule(this)
             } catch (_: SecurityException) {
-                failed = false
+                // Without calendar access a retry fails the same way.
             } catch (_: Exception) {
                 failed = true
             } finally {
@@ -87,3 +88,8 @@ class CalendarRefreshReceiver : BroadcastReceiver() {
         AppRefresh.refresh(context) { pending.finish() }
     }
 }
+
+/** Calendars the app shows: the chosen ones that still exist, or before any choice the calendars the provider marks visible. */
+internal fun SettingsStore.visibleCalendarIds(calendars: List<DeviceCalendar>): Set<Long> =
+    if (hasChosenCalendars) selectedCalendarIds.intersect(calendars.mapTo(mutableSetOf()) { it.id })
+    else calendars.filter { it.visible }.mapTo(mutableSetOf()) { it.id }

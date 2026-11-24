@@ -46,7 +46,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.MaterialTheme
@@ -76,7 +75,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -222,7 +220,7 @@ fun EventEditorScreen(vm: SunlithViewModel) {
             pendingReminder = minutes
             notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
-            if (!vm.remindersEnabled) vm.setReminders(true)
+            if (!vm.remindersEnabled) vm.remindersEnabled = true
             vm.updateEditor { it.copy(reminders = (it.reminders + minutes).distinct().sorted()) }
         }
     }
@@ -255,7 +253,7 @@ fun EventEditorScreen(vm: SunlithViewModel) {
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                 maxLines = 3,
             )
-            if (state.editsSeries) Notice(stringResource(R.string.editor_series_note))
+            if (state.editsSeries) Notice(stringResource(R.string.editor_series_note), muted = true)
             HorizontalDivider(color = p.line)
 
             EditorRow(Icons.Outlined.Schedule, onClick = { vm.updateEditor { it.copy(allDay = !it.allDay) } }, role = Role.Switch) {
@@ -331,7 +329,7 @@ fun EventEditorScreen(vm: SunlithViewModel) {
             EditorField(Icons.Outlined.LocationOn, state.location, stringResource(R.string.editor_location_hint), singleLine = true) { v -> vm.updateEditor { it.copy(location = v) } }
             EditorField(Icons.AutoMirrored.Outlined.Notes, state.notes, stringResource(R.string.editor_notes_hint), singleLine = false) { v -> vm.updateEditor { it.copy(notes = v) } }
 
-            problem?.let { if (it != R.string.editor_end_before_start && state.title.isNotBlank()) Notice(stringResource(it)) }
+            problem?.let { if (it != R.string.editor_end_before_start && state.title.isNotBlank()) Notice(stringResource(it), muted = true) }
 
             if (state.id != null) {
                 Spacer(Modifier.height(16.dp))
@@ -497,16 +495,6 @@ private fun EditorField(icon: ImageVector, value: String, hint: String, singleLi
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
         )
     }
-}
-
-@Composable
-private fun Notice(text: String) {
-    val p = LocalPalette.current
-    Text(
-        text,
-        Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().background(p.surface, RoundedCornerShape(10.dp)).padding(12.dp),
-        color = p.muted, style = MaterialTheme.typography.bodyMedium,
-    )
 }
 
 @Composable

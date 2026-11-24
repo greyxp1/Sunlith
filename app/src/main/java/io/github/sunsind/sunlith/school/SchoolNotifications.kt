@@ -1,25 +1,21 @@
 package io.github.sunsind.sunlith.school
 
-import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationChannelGroup
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
 import io.github.sunsind.sunlith.MainActivity
 import io.github.sunsind.sunlith.R
+import io.github.sunsind.sunlith.system.notificationsAllowed
 
 internal class SchoolNotifications(private val context: Context) {
     fun changes(record: SchoolRecord, changes: List<SchoolDelta>) {
         val enabled = enabledChanges(record, changes)
-        if (enabled.isEmpty() || !allowed()) return
-        val manager = channels()
+        if (enabled.isEmpty() || !context.notificationsAllowed()) return
         val categories = enabled.flatMap { it.categories intersect record.notifications.categories }.toSet()
         val labels = categories.sortedBy { it.ordinal }.joinToString(", ") { context.getString(label(it)) }
         val first = enabled.minBy { it.item.date }.item
@@ -32,54 +28,33 @@ internal class SchoolNotifications(private val context: Context) {
             }
         }
         val text = context.resources.getQuantityString(R.plurals.school_sync_changes_count, enabled.size, enabled.size)
-        val notification = NotificationCompat.Builder(context, CHANGES)
-            .setSmallIcon(R.drawable.ic_notification).setContentTitle(context.getString(R.string.school_sync_notification_title))
-            .setContentText(text).setStyle(NotificationCompat.BigTextStyle().bigText("$labels\n$detail"))
-            .setCategory(NotificationCompat.CATEGORY_EVENT).setAutoCancel(true)
-            .setContentIntent(open("changes", first.date.toString())).build()
-        try { manager.notify("school-changes", 0, notification) } catch (_: SecurityException) { }
+        post("school-changes", CHANGES, context.getString(R.string.school_sync_notification_title), text, "changes", NotificationCompat.CATEGORY_EVENT,
+            "$labels\n$detail", first.date.toString())
     }
     fun messages(record: SchoolRecord, messages: List<SchoolAdminNotice>) {
-        if (!record.notifications.enabled || SchoolAlert.ADMINISTRATION_MESSAGES !in record.notifications.categories || !allowed()) return
+        if (!record.notifications.enabled || SchoolAlert.ADMINISTRATION_MESSAGES !in record.notifications.categories || !context.notificationsAllowed()) return
         if (messages.isEmpty()) return
-        val manager = channels()
         if (messages.size > 3) {
             val text = context.resources.getQuantityString(R.plurals.school_admin_new_messages, messages.size, messages.size)
-            val notification = NotificationCompat.Builder(context, MESSAGES).setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle(context.getString(R.string.school_messages_title)).setContentText(text)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(messages.take(10).joinToString("\n") { it.subject }))
-                .setContentIntent(open("messages", null)).setAutoCancel(true).setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-                .setCategory(NotificationCompat.CATEGORY_MESSAGE).build()
-            try { manager.notify("school-message:summary", 0, notification) } catch (_: SecurityException) { }
+            post("school-message:summary", MESSAGES, context.getString(R.string.school_messages_title), text, "messages", NotificationCompat.CATEGORY_MESSAGE,
+                messages.take(10).joinToString("\n") { it.subject }) { setVisibility(NotificationCompat.VISIBILITY_PRIVATE) }
             return
         }
         messages.forEach { message ->
             val preview = (message.body ?: context.getString(R.string.school_admin_title_only)).take(4_000)
-            val notification = NotificationCompat.Builder(context, MESSAGES).setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle(message.subject).setContentText(preview.take(500))
-                .setStyle(NotificationCompat.BigTextStyle().bigText(preview))
-                .setSubText(message.sender).setContentIntent(open("messages", null))
-                .setAutoCancel(true).setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-                .setCategory(NotificationCompat.CATEGORY_MESSAGE).build()
-            try { manager.notify("school-message:${schoolHash(record.connection + "\n" + message.id)}", 0, notification) } catch (_: SecurityException) { }
+            post("school-message:${schoolHash(record.connection + "\n" + message.id)}", MESSAGES, message.subject, preview.take(500), "messages",
+                NotificationCompat.CATEGORY_MESSAGE, preview) { setSubText(message.sender).setVisibility(NotificationCompat.VISIBILITY_PRIVATE) }
         }
     }
     fun failure(record: SchoolRecord, error: SchoolError) {
-        if (!record.notifications.enabled || SchoolAlert.CONNECTION_PROBLEMS !in record.notifications.categories || !allowed()) return
+        if (!record.notifications.enabled || SchoolAlert.CONNECTION_PROBLEMS !in record.notifications.categories || !context.notificationsAllowed()) return
         val text = context.getString(if (error == SchoolError.SIGN_IN || error == SchoolError.MFA_REQUIRED) R.string.school_sync_sign_in_notification else R.string.school_sync_connection_notification)
-        val notification = NotificationCompat.Builder(context, PROBLEMS).setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(context.getString(R.string.school_sync_notification_title)).setContentText(text)
-            .setContentIntent(open("connection", null)).setAutoCancel(true).setOnlyAlertOnce(true).setCategory(NotificationCompat.CATEGORY_ERROR).build()
-        try { channels().notify("school-connection", 0, notification) } catch (_: SecurityException) { }
+        post("school-connection", PROBLEMS, context.getString(R.string.school_sync_notification_title), text, "connection", NotificationCompat.CATEGORY_ERROR) { setOnlyAlertOnce(true) }
     }
     fun review(record: SchoolRecord, changes: List<SchoolDelta>) {
-        if (enabledChanges(record, changes).isEmpty() || !allowed()) return
-        val notification = NotificationCompat.Builder(context, CHANGES).setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(context.getString(R.string.school_review_title))
-            .setContentText(context.getString(R.string.school_sync_review_notification))
-            .setContentIntent(open("review", null)).setAutoCancel(true).setOnlyAlertOnce(true)
-            .setCategory(NotificationCompat.CATEGORY_EVENT).build()
-        try { channels().notify("school-review", 0, notification) } catch (_: SecurityException) { }
+        if (enabledChanges(record, changes).isEmpty() || !context.notificationsAllowed()) return
+        post("school-review", CHANGES, context.getString(R.string.school_review_title), context.getString(R.string.school_sync_review_notification), "review",
+            NotificationCompat.CATEGORY_EVENT) { setOnlyAlertOnce(true) }
     }
     fun clearReview() { context.getSystemService(NotificationManager::class.java).cancel("school-review", 0) }
     private fun enabledChanges(record: SchoolRecord, changes: List<SchoolDelta>) = SchoolDiff.enabled(changes, record.notifications)
@@ -90,8 +65,14 @@ internal class SchoolNotifications(private val context: Context) {
         manager.cancel("school-changes", 0); manager.cancel("school-connection", 0); clearReview()
         manager.activeNotifications.filter { it.tag?.startsWith("school-message:") == true }.forEach { manager.cancel(it.tag, it.id) }
     }
-    private fun allowed() = NotificationManagerCompat.from(context).areNotificationsEnabled() &&
-        (Build.VERSION.SDK_INT < 33 || context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
+    private fun post(tag: String, channel: String, title: String, text: String, kind: String, category: String, big: String? = null, date: String? = null,
+        extra: NotificationCompat.Builder.() -> Unit = {}) {
+        val manager = channels()
+        val notification = NotificationCompat.Builder(context, channel).setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title).setContentText(text).setContentIntent(open(kind, date)).setAutoCancel(true).setCategory(category)
+            .apply { if (big != null) setStyle(NotificationCompat.BigTextStyle().bigText(big)) }.apply(extra).build()
+        try { manager.notify(tag, 0, notification) } catch (_: SecurityException) { }
+    }
     private fun channels(): NotificationManager {
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannelGroup(NotificationChannelGroup("school", context.getString(R.string.school_sync_notification_title)))

@@ -1,6 +1,8 @@
 package io.github.sunsind.sunlith.school
 
+import java.io.IOException
 import java.security.MessageDigest
+import java.time.DateTimeException
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
@@ -10,10 +12,20 @@ import java.time.format.DateTimeFormatter
 import java.time.format.ResolverStyle
 import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
+import kotlinx.coroutines.TimeoutCancellationException
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 
 internal class SchoolFailure(val reason: SchoolError) : Exception(reason.name)
+
+/** Maps an exception from a school read or sync to its user-facing reason; anything unrecognized becomes [otherwise]. */
+internal fun schoolError(e: Exception, otherwise: SchoolError): SchoolError = when (e) {
+    is SchoolFailure -> e.reason
+    is IOException, is TimeoutCancellationException -> SchoolError.NETWORK
+    is JSONException, is DateTimeException, is IllegalArgumentException -> SchoolError.INVALID_DATA
+    else -> otherwise
+}
 
 internal fun schoolRequire(value: Boolean) { if (!value) throw SchoolFailure(SchoolError.INVALID_DATA) }
 internal fun schoolHash(value: String): String = MessageDigest.getInstance("SHA-256")

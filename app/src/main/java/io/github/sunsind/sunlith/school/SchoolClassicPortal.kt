@@ -1,8 +1,7 @@
 package io.github.sunsind.sunlith.school
 
-import java.io.ByteArrayOutputStream
+import android.content.Context
 import java.io.IOException
-import java.net.SocketTimeoutException
 import java.net.URI
 import java.net.URLEncoder
 import java.nio.ByteBuffer
@@ -10,29 +9,27 @@ import java.nio.charset.CharacterCodingException
 import java.nio.charset.Charset
 import java.nio.charset.CodingErrorAction
 import java.util.Locale
-import javax.net.ssl.HttpsURLConnection
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.ensureActive
 
 internal data class SchoolHtmlPage(val uri: URI, val html: String)
 
-internal enum class SchoolAdminOutcome { OK, SIGN_IN, UNRECOGNIZED, NETWORK, UNAVAILABLE }
-internal data class SchoolAdminResult(val outcome: SchoolAdminOutcome, val rows: List<SchoolAdminRow> = emptyList(), val details: Map<String, SchoolAdminDetail> = emptyMap(), val detailsStale: Boolean = false)
+internal data class SchoolAdminResult(val outcome: SchoolAdminStatus, val rows: List<SchoolAdminRow> = emptyList(), val details: Map<String, SchoolAdminDetail> = emptyMap(), val detailsStale: Boolean = false)
 
 /**
  * Classic Col.NET web session (cookie based), used only to read "Message(s) de l'administration".
- * Every URL is checked to stay on the same host under the Col.NET folder. Nothing is logged, and the session lives only in memory.
+ * Every URL is checked to stay on the same host under the Col.NET folder. Only transport error types are logged, and the session lives only in memory.
  */
-internal class SchoolClassicPortal(mobileBase: URI, private val routes: List<(URI) -> HttpsURLConnection>) {
+internal class SchoolClassicPortal(mobileBase: URI, context: Context) {
     val colnet: URI = mobileBase.resolve("../").normalize()
     val loginPage: URI = colnet.resolve("login.asp")
     private val cookies = linkedMapOf<String, String>()
-    private var route = 0
+    private val https = SchoolHttps(context, "Classic")
     private var requests = 0
 
     suspend fun readAdministration(username: String, password: String, cachedDetails: Map<String, SchoolAdminDetail>, today: java.time.LocalDate): SchoolAdminResult {
         val landing = try { signIn(username, password) } catch (e: SchoolFailure) {
-            return SchoolAdminResult(when (e.reason) { SchoolError.SIGN_IN -> SchoolAdminOutcome.SIGN_IN; SchoolError.NETWORK -> SchoolAdminOutcome.NETWORK; SchoolError.UNAVAILABLE -> SchoolAdminOutcome.UNAVAILABLE; else -> SchoolAdminOutcome.UNRECOGNIZED })
+            return SchoolAdminResult(e.reason.adminStatus())
         }
         val pages = ArrayList<SchoolHtmlPage>().apply { add(landing) }
         var frontier = listOf(landing)
@@ -43,13 +40,13 @@ internal class SchoolClassicPortal(mobileBase: URI, private val routes: List<(UR
             pages += frontier
         }
         val lists = pages.mapNotNull { page -> SchoolAdminParser.list(SchoolHtml.tables(SchoolHtml.tokens(page.html)), page.uri, colnet) }.distinct()
-        if (lists.size != 1) return SchoolAdminResult(SchoolAdminOutcome.UNRECOGNIZED)
+        if (lists.size != 1) return SchoolAdminResult(SchoolAdminStatus.UNRECOGNIZED)
         val rows = lists.single()
         val details = LinkedHashMap<String, SchoolAdminDetail>()
         rows.forEach { row -> cachedDetails[row.id]?.takeIf { SchoolAdminParser.matches(row, it) }?.let { details[row.id] = it } }
         var detailsStale = false
         rows.filter { it.link != null && !it.date.isBefore(today.minusDays(120)) }.take(MAX_DETAILS).forEach { row ->
-            val page = try { get(row.link!!) } catch (e: SchoolFailure) { if (e.reason == SchoolError.SIGN_IN) return SchoolAdminResult(SchoolAdminOutcome.SIGN_IN) else null }
+            val page = try { get(row.link!!) } catch (e: SchoolFailure) { if (e.reason == SchoolError.SIGN_IN) return SchoolAdminResult(SchoolAdminStatus.SIGN_IN) else null }
             val detail = page?.let { SchoolAdminParser.detail(SchoolHtml.tables(SchoolHtml.tokens(it.html))) }
                 ?.takeIf { SchoolAdminParser.matches(row, it) }
             if (detail != null) details[row.id] = detail
@@ -58,7 +55,7 @@ internal class SchoolClassicPortal(mobileBase: URI, private val routes: List<(UR
                 cachedDetails[row.id]?.takeIf { SchoolAdminParser.matches(row, it) }?.let { details[row.id] = it }
             }
         }
-        return SchoolAdminResult(SchoolAdminOutcome.OK, rows, details, detailsStale)
+        return SchoolAdminResult(SchoolAdminStatus.OK, rows, details, detailsStale)
     }
 
     private suspend fun signIn(username: String, password: String): SchoolHtmlPage {
@@ -88,60 +85,21 @@ internal class SchoolClassicPortal(mobileBase: URI, private val routes: List<(UR
     }
 
     /** Returns (html, null) for a page or (null, location) for a redirect. */
-    private suspend fun exchange(uri: URI, form: String?): Pair<String?, String?> {
-        while (true) {
-            try { return exchangeOn(routes[route](uri), form) } catch (e: IOException) {
-                coroutineContext.ensureActive()
-                if (route == routes.lastIndex) throw SchoolFailure(SchoolError.NETWORK)
-                route++
-            } catch (_: SecurityException) {
-                if (route == routes.lastIndex) throw SchoolFailure(SchoolError.NETWORK)
-                route++
-            }
-        }
-    }
-
-    private suspend fun exchangeOn(connection: HttpsURLConnection, form: String?): Pair<String?, String?> {
-        try {
-            connection.instanceFollowRedirects = false
-            connection.connectTimeout = 15_000
-            connection.readTimeout = 20_000
-            connection.useCaches = false
+    private suspend fun exchange(uri: URI, form: String?): Pair<String?, String?> = try {
+        https.exchange(uri, form, "application/x-www-form-urlencoded", { connection ->
             connection.setRequestProperty("Accept", "text/html")
             if (cookies.isNotEmpty()) connection.setRequestProperty("Cookie", cookies.entries.joinToString("; ") { "${it.key}=${it.value}" })
-            if (form != null) {
-                connection.requestMethod = "POST"
-                connection.doOutput = true
-                connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-                val bytes = form.toByteArray(Charsets.UTF_8)
-                connection.setFixedLengthStreamingMode(bytes.size)
-                connection.outputStream.use { it.write(bytes) }
-            }
-            val status = connection.responseCode
+        }) { connection, status ->
             connection.headerFields?.entries?.filter { it.key.equals("Set-Cookie", true) }?.flatMap { it.value.orEmpty() }?.forEach(::remember)
-            if (status in 300..399) return null to (connection.getHeaderField("Location") ?: throw SchoolFailure(SchoolError.INVALID_DATA))
+            if (status in 300..399) return@exchange null to (connection.getHeaderField("Location") ?: throw SchoolFailure(SchoolError.INVALID_DATA))
             if (status == 401 || status == 403) throw SchoolFailure(SchoolError.SIGN_IN)
             if (status == 503) throw SchoolFailure(SchoolError.UNAVAILABLE)
             if (status !in 200..299) throw SchoolFailure(SchoolError.NETWORK)
             val type = connection.contentType.orEmpty()
             if (!type.substringBefore(';').trim().equals("text/html", true)) throw SchoolFailure(SchoolError.INVALID_DATA)
-            schoolRequire(connection.contentLengthLong <= MAX_BYTES)
-            val bytes = ByteArrayOutputStream()
-            connection.inputStream.use { input ->
-                val buffer = ByteArray(8192)
-                val deadline = System.nanoTime() + 30_000_000_000L
-                while (true) {
-                    coroutineContext.ensureActive()
-                    if (System.nanoTime() > deadline) throw SocketTimeoutException("Portal page timed out")
-                    val count = input.read(buffer)
-                    if (count < 0) break
-                    schoolRequire(bytes.size() + count <= MAX_BYTES)
-                    bytes.write(buffer, 0, count)
-                }
-            }
-            return decode(bytes.toByteArray(), type) to null
-        } finally { connection.disconnect() }
-    }
+            decode(SchoolHttps.body(connection, MAX_BYTES), type) to null
+        }
+    } catch (_: IOException) { throw SchoolFailure(SchoolError.NETWORK) }
 
     private fun remember(header: String) {
         val pair = header.substringBefore(';')
@@ -169,7 +127,7 @@ internal class SchoolClassicPortal(mobileBase: URI, private val routes: List<(UR
          * server signs in only when btnConnecter.x and .y are posted, in both layouts. The phone layout is accepted only
          * when it has no other submit control and carries the _PostBackInfo field, so an unknown form still fails closed.
          */
-        internal fun loginRequest(page: SchoolHtmlPage, colnet: URI, username: String, password: String): Pair<URI, String> {
+        private fun loginRequest(page: SchoolHtmlPage, colnet: URI, username: String, password: String): Pair<URI, String> {
             val forms = SchoolHtml.forms(SchoolHtml.tokens(page.html)).filter { form ->
                 form.inputs.any { it["name"] == USER } && form.inputs.any { it["name"] == PASSWORD }
             }
@@ -189,9 +147,9 @@ internal class SchoolClassicPortal(mobileBase: URI, private val routes: List<(UR
                 listOf(USER to username, PASSWORD to password, "$submit.x" to "12", "$submit.y" to "8")
             return action to fields.joinToString("&") { (k, v) -> "${URLEncoder.encode(k, "UTF-8")}=${URLEncoder.encode(v, "UTF-8")}" }
         }
-        internal const val POST_BACK = "_PostBackInfo"
+        private const val POST_BACK = "_PostBackInfo"
 
-        internal fun decode(bytes: ByteArray, contentType: String): String {
+        private fun decode(bytes: ByteArray, contentType: String): String {
             val declared = Regex("charset=\"?([A-Za-z0-9_\\-]+)", RegexOption.IGNORE_CASE).find(contentType)?.groupValues?.get(1)
             val charset = declared?.let { runCatching { Charset.forName(it) }.getOrNull() }
             if (charset != null) return String(bytes, charset)

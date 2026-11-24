@@ -5,6 +5,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -18,7 +20,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -53,14 +54,12 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -69,7 +68,7 @@ import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.school.SchoolAdminNotice
 import io.github.sunsind.sunlith.school.SchoolAdminStatus
 import io.github.sunsind.sunlith.school.SchoolCollegeNotice
-import io.github.sunsind.sunlith.school.SchoolMessagesController
+import io.github.sunsind.sunlith.school.SchoolMessagesManager
 import io.github.sunsind.sunlith.school.SchoolNoticeStatus
 import io.github.sunsind.sunlith.school.SchoolNoticeSuggestion
 import io.github.sunsind.sunlith.school.SchoolPortalLink
@@ -86,8 +85,8 @@ import kotlinx.coroutines.launch
  * Bodies render as text: no scripts, images or remote content are loaded.
  */
 @Composable
-fun SchoolMessagesScreen(
-    controller: SchoolMessagesController,
+internal fun SchoolMessagesScreen(
+    controller: SchoolMessagesManager,
     onBack: () -> Unit,
     onAddSuggestion: (SchoolNoticeSuggestion) -> Unit = {},
     onOpenDate: (LocalDate) -> Unit = {},
@@ -113,7 +112,7 @@ fun SchoolMessagesScreen(
     BackHandler(onBack = back)
     fun openPortal() { state.portalUrl?.let { runCatching { uri.openUri(it) } } }
 
-    Scaffold(modifier = Modifier.semantics { testTagsAsResourceId = true }.testTag("school_messages_screen"), containerColor = p.background, topBar = {
+    Scaffold(containerColor = p.background, topBar = {
         ScreenTopBar(admin?.subject ?: stringResource(R.string.school_messages_title), onNavigate = back) {
             if (state.busy) CircularProgressIndicator(Modifier.padding(12.dp).size(24.dp), strokeWidth = 2.dp, color = p.muted)
             else IconButton(onClick = { scope.launch { try { controller.refresh() } catch (e: CancellationException) { throw e } catch (_: Exception) { } } }, enabled = state.connected) {
@@ -123,7 +122,7 @@ fun SchoolMessagesScreen(
     }) { pad ->
         Box(Modifier.fillMaxSize().padding(pad)) {
             when {
-                !state.connected -> Note(stringResource(R.string.school_messages_not_connected))
+                !state.connected -> Note(stringResource(R.string.school_messages_not_connected), live = true)
                 admin != null -> AdminDetail(admin, state.collegeNotices.firstOrNull { it.sourceId == admin.id }, ::openPortal, onOpenDate)
                 else -> Column(Modifier.fillMaxSize()) {
                 // The picker stays above the list, so it is reachable however far the list is scrolled.
@@ -203,7 +202,7 @@ private fun SectionPicker(section: String, onSelect: (String) -> Unit) {
     Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp), contentAlignment = Alignment.TopEnd) {
         Box {
             Row(
-                Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp)).testTag("school_messages_section")
+                Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp))
                     .clickable(role = Role.DropdownList) { expanded = true }
                     .semantics { contentDescription = "$label: $current" }
                     .padding(horizontal = 12.dp),
@@ -213,14 +212,14 @@ private fun SectionPicker(section: String, onSelect: (String) -> Unit) {
                 Icon(Icons.Outlined.ArrowDropDown, null, tint = p.muted)
             }
             DropdownMenu(expanded, onDismissRequest = { expanded = false }, containerColor = p.surface,
-                modifier = Modifier.semantics { testTagsAsResourceId = true }) {
+                modifier = Modifier) {
                 sections.forEach { (key, name) ->
                     val on = key == section
                     DropdownMenuItem(
                         text = { Text(name, color = p.ink) },
                         onClick = { expanded = false; onSelect(key) },
                         trailingIcon = { if (on) Icon(Icons.Outlined.Check, null, tint = p.accent) },
-                        modifier = Modifier.testTag("school_messages_section_$key").semantics { selected = on },
+                        modifier = Modifier.semantics { selected = on },
                     )
                 }
             }
@@ -232,7 +231,7 @@ private fun SectionPicker(section: String, onSelect: (String) -> Unit) {
 @Composable
 private fun SuggestionList(suggestions: List<SchoolNoticeSuggestion>, state: LazyListState, onAddSuggestion: (SchoolNoticeSuggestion) -> Unit) {
     val p = LocalPalette.current
-    LazyColumn(Modifier.fillMaxSize().testTag("school_suggestion_list"), state = state,
+    LazyColumn(Modifier.fillMaxSize(), state = state,
         contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp)) {
         item { Note(stringResource(R.string.school_admin_suggestions_note)) }
         items(suggestions, key = { it.id }) { s ->
@@ -240,7 +239,7 @@ private fun SuggestionList(suggestions: List<SchoolNoticeSuggestion>, state: Laz
                 Text(longDate(s.date), color = p.ink, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                 Text(s.title, color = p.muted, style = MaterialTheme.typography.bodySmall)
                 Text(s.detail, color = p.ink, style = MaterialTheme.typography.bodyMedium)
-                TextButton({ onAddSuggestion(s) }, Modifier.heightIn(min = 48.dp).testTag("school_suggestion_add_${s.id}")) { Text(stringResource(R.string.school_admin_suggestion_add)) }
+                TextButton({ onAddSuggestion(s) }, Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.school_admin_suggestion_add)) }
             }
         }
     }
@@ -253,7 +252,7 @@ private fun AdminList(
     onOpenPortal: () -> Unit, onLinks: (() -> Unit)?, linksLoading: Boolean,
 ) {
     val p = LocalPalette.current
-    LazyColumn(Modifier.fillMaxSize().testTag("school_admin_list"), state = listState, contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 32.dp)) {
         val message = when (status) {
             SchoolAdminStatus.OK -> null
             SchoolAdminStatus.NOT_LOADED -> R.string.school_admin_not_loaded
@@ -276,9 +275,9 @@ private fun AdminList(
             items(college, key = { it.identity }) { n -> CollegeCard(n, onOpenDate) { notices.firstOrNull { it.id == n.sourceId }?.let(onOpen) } }
         }
         item { SectionTitle(stringResource(R.string.school_admin_list)) }
-        if (notices.isEmpty() && status == SchoolAdminStatus.OK) item { Note(stringResource(R.string.school_admin_empty)) }
+        if (notices.isEmpty() && status == SchoolAdminStatus.OK) item { Note(stringResource(R.string.school_admin_empty), live = true) }
         items(notices, key = { it.id }) { n ->
-            Column(Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("school_admin_${n.id}").clickable(role = Role.Button) { onOpen(n) }.padding(horizontal = 16.dp, vertical = 10.dp)) {
+            Column(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(role = Role.Button) { onOpen(n) }.padding(horizontal = 16.dp, vertical = 10.dp)) {
                 Text(n.subject, color = p.ink, style = MaterialTheme.typography.bodyLarge, maxLines = 3, overflow = TextOverflow.Ellipsis)
                 Text(listOf(shortDate(n.date), n.sender).filter { it.isNotBlank() }.joinToString(" · "), color = p.muted, style = MaterialTheme.typography.bodySmall)
             }
@@ -308,8 +307,8 @@ private fun CollegeCard(n: SchoolCollegeNotice, onOpenDate: (LocalDate) -> Unit,
         if (!n.detailRead) Text(stringResource(R.string.school_admin_title_only), color = p.muted, style = MaterialTheme.typography.bodySmall)
         Text(stringResource(if (n.classesMarked) R.string.school_admin_classes_marked else R.string.school_admin_scope_note), color = p.muted, style = MaterialTheme.typography.bodySmall)
         Row {
-            TextButton({ onOpenDate(n.targetDate) }, Modifier.heightIn(min = 48.dp).testTag("school_notice_day_${n.identity}")) { Text(stringResource(R.string.school_admin_show_day)) }
-            TextButton(onSource, Modifier.heightIn(min = 48.dp).testTag("school_notice_source_${n.identity}")) { Text(stringResource(R.string.school_admin_open_notice)) }
+            TextButton({ onOpenDate(n.targetDate) }, Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.school_admin_show_day)) }
+            TextButton(onSource, Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.school_admin_open_notice)) }
         }
     }
 }
@@ -317,7 +316,7 @@ private fun CollegeCard(n: SchoolCollegeNotice, onOpenDate: (LocalDate) -> Unit,
 @Composable
 private fun AdminDetail(n: SchoolAdminNotice, college: SchoolCollegeNotice?, onOpenPortal: () -> Unit, onOpenDate: (LocalDate) -> Unit) {
     val p = LocalPalette.current
-    Column(Modifier.fillMaxSize().testTag("school_admin_detail").verticalScroll(rememberScrollState()).navigationBarsPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(n.subject, Modifier.semantics { heading() }, color = p.ink, style = MaterialTheme.typography.titleMedium)
         Text(longDate(n.date), color = p.muted, style = MaterialTheme.typography.bodySmall)
         if (n.sender.isNotBlank()) Text(stringResource(R.string.school_admin_source, n.sender), color = p.ink, style = MaterialTheme.typography.bodyMedium)
@@ -332,19 +331,11 @@ private fun AdminDetail(n: SchoolAdminNotice, college: SchoolCollegeNotice?, onO
     }
 }
 
+// Message cards end in text buttons, so they keep a tighter bottom edge.
 @Composable
-private fun Card(emphasis: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
-    val p = LocalPalette.current
-    Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().background(if (emphasis) p.raised else p.surface, RoundedCornerShape(12.dp))
-        .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp), content = content)
-}
-
-@Composable
-private fun Note(text: String, danger: Boolean = false) {
-    val p = LocalPalette.current
-    Text(text, Modifier.padding(horizontal = 16.dp, vertical = 8.dp).semantics { liveRegion = LiveRegionMode.Polite },
-        color = if (danger) p.danger else p.muted, style = MaterialTheme.typography.bodyMedium)
-}
+private fun Card(emphasis: Boolean = false, content: @Composable ColumnScope.() -> Unit) = SurfaceCard(
+    Modifier.padding(horizontal = 16.dp, vertical = 6.dp), emphasis, PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 6.dp), content,
+)
 
 @Composable
 private fun Updated(millis: Long?) {

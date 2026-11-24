@@ -123,7 +123,7 @@ internal class TodoRecurrenceIdentity private constructor(
         private val days = mapOf("MO" to DayOfWeek.MONDAY, "TU" to DayOfWeek.TUESDAY, "WE" to DayOfWeek.WEDNESDAY,
             "TH" to DayOfWeek.THURSDAY, "FR" to DayOfWeek.FRIDAY, "SA" to DayOfWeek.SATURDAY, "SU" to DayOfWeek.SUNDAY)
 
-        fun from(master: EventDraft, extraDates: Boolean = false): TodoRecurrenceIdentity? {
+        fun from(master: EventDraft, extraDates: Boolean): TodoRecurrenceIdentity? {
             if (extraDates) return null
             val rule = master.rrule?.uppercase(java.util.Locale.ROOT) ?: return null
             if (runCatching { IcsCodec.recurrence(rule) }.isFailure) return null

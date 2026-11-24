@@ -50,7 +50,7 @@ data class IncomingCalendarEvent(
 
 private val calendarMimeTypes = setOf("text/calendar", "text/x-vcalendar", "application/ics")
 
-fun readCalendarHandoff(intent: Intent, resolvedType: String? = intent.type): CalendarHandoff? = try {
+fun readCalendarHandoff(intent: Intent, resolvedType: String?): CalendarHandoff? = try {
     when (intent.action) {
         Intent.ACTION_VIEW, Intent.ACTION_SEND -> {
             if (resolvedType?.substringBefore(';')?.trim()?.lowercase() !in calendarMimeTypes) null

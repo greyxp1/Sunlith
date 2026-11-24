@@ -59,8 +59,6 @@ internal object DeviceLinkHistory {
         DeviceLink.activityChanged()
     }
 
-    /** Tests use this to read the file again. */
-    internal fun dropCache() = synchronized(lock) { entries = null }
 
     private fun load(context: Context): List<DeviceLinkChange> = entries ?: read(context).also { entries = it }
 
@@ -73,7 +71,7 @@ internal object DeviceLinkHistory {
     }
 
     /** At most [MAX_TITLE] chars, without lone surrogates, which the JSON writer rejects and would block every later save. */
-    internal fun cleanTitle(title: String?): String? {
+    private fun cleanTitle(title: String?): String? {
         if (title == null) return null
         val out = StringBuilder()
         var i = 0

@@ -1,6 +1,9 @@
 package io.github.sunsind.sunlith.system
 
 import android.content.Context
+import android.content.SharedPreferences
+import kotlin.properties.ReadWriteProperty
+import kotlin.reflect.KProperty
 import org.json.JSONObject
 
 class SettingsStore(context: Context) {
@@ -21,139 +24,63 @@ class SettingsStore(context: Context) {
                 prefs.getString("day_layout", "cards") == "timeline") migration.putString("day_layout", "cards")
             migration.apply()
         }
-        if (!prefs.getBoolean(CONTINUOUS_WEEK_V3, false)) {
-            val saved = prefs.getString(WEEK_LAYOUT, null)
-            val days = if (prefs.contains(VISIBLE_DAYS)) prefs.getInt(VISIBLE_DAYS, 7) else null
-            val migrated = migrateWeekLayout(saved, days)
-            // The retired rolling and workweek switches stay stored as they were. Nothing reads them any more.
-            val edit = prefs.edit().putBoolean(CONTINUOUS_WEEK_V3, true)
-            migrated.layout?.let { edit.putString(WEEK_LAYOUT, it) }
-            migrated.days?.let { edit.putInt(VISIBLE_DAYS, it) }
+        if (prefs.contains(LEGACY_WORKWEEK)) {
+            // v0.6.8 stored the opposite toggle. Only an explicit "off" meant the user chose rolling days.
+            val legacy = prefs.getBoolean(LEGACY_WORKWEEK, false)
+            val edit = prefs.edit().remove(LEGACY_WORKWEEK)
+            if (!prefs.contains(ROLLING_FIVE_DAYS)) edit.putBoolean(ROLLING_FIVE_DAYS, !legacy)
             edit.apply()
         }
     }
 
-    var selectedCalendarIds: Set<Long>
-        get() = prefs.getStringSet("calendars", emptySet()).orEmpty().mapNotNull(String::toLongOrNull).toSet()
-        set(value) { prefs.edit().putStringSet("calendars", value.map(Long::toString).toSet()).apply() }
+    var selectedCalendarIds: Set<Long> by pref({ getStringSet("calendars", emptySet()).orEmpty().mapNotNull(String::toLongOrNull).toSet() }) {
+        putStringSet("calendars", it.map(Long::toString).toSet())
+    }
+    var hasChosenCalendars by bool("chosen", false)
+    var remindersEnabled by bool("reminders", true)
+    var themeMode by choice("theme", "system", "dark", "light")
+    var weekStartsMonday by bool("monday", true)
+    var widgetOpacity by int("widget_opacity", 100) { ((it.coerceIn(0, 100) + 2) / 5) * 5 }
+    var widgetDays by int("widget_days", 7) { it.coerceIn(1, 31) }
+    var widgetShowCalendarName by bool("widget_calendar_name", false)
+    var widgetShowEmptyDays by bool("widget_empty_days", true)
+    var agendaDisplay by choice("agenda_display", "all", "compact", "events")
+    var collapseCalendarOnScroll by bool("collapse_calendar_on_scroll", false)
+    var startView by choice("start_view", "Month", "Week", "Day", "last")
+    var navigationAnimation by bool("navigation_animation", true)
+    var materialYou by bool("material_you", true)
+    var showNavigationArrows by bool("navigation_arrows", false)
+    var swipeNavigation by bool("swipe_navigation", true)
+    var keepSelectedDate by bool("keep_selected_date", false)
+    var agendaRange by choice("agenda_range", "continuous", "month", "week", "day")
+    var monthLayout by choice("month_layout", "split", "full")
+    var weekLayout by choice("week_layout", "list", "timeline", "continuous")
+    var groupEmptyHours by bool("group_empty_hours", false)
+    var dayLayout by choice("day_layout", "cards", "timeline", "schedule")
+    var weekTimelineZoom by int("week_timeline_zoom", 100) { it.coerceIn(50, 200) }
 
-    var hasChosenCalendars: Boolean
-        get() = prefs.getBoolean("chosen", false)
-        set(value) { prefs.edit().putBoolean("chosen", value).apply() }
-
-    var remindersEnabled: Boolean
-        get() = prefs.getBoolean("reminders", true)
-        set(value) { prefs.edit().putBoolean("reminders", value).apply() }
-
-    var themeMode: String
-        get() = prefs.getString("theme", "system")?.takeIf { it in setOf("system", "dark", "light") } ?: "system"
-        set(value) { require(value in setOf("system", "dark", "light")); prefs.edit().putString("theme", value).apply() }
-
-    var weekStartsMonday: Boolean
-        get() = prefs.getBoolean("monday", true)
-        set(value) { prefs.edit().putBoolean("monday", value).apply() }
-
-    var widgetOpacity: Int
-        get() = ((prefs.getInt("widget_opacity", 100).coerceIn(0, 100) + 2) / 5) * 5
-        set(value) { prefs.edit().putInt("widget_opacity", ((value.coerceIn(0, 100) + 2) / 5) * 5).apply() }
-
-    var widgetDays: Int
-        get() = prefs.getInt("widget_days", 7).coerceIn(1, 31)
-        set(value) { prefs.edit().putInt("widget_days", value.coerceIn(1, 31)).apply() }
-
-    var widgetShowCalendarName: Boolean
-        get() = prefs.getBoolean("widget_calendar_name", false)
-        set(value) { prefs.edit().putBoolean("widget_calendar_name", value).apply() }
-
-    var widgetShowEmptyDays: Boolean
-        get() = prefs.getBoolean("widget_empty_days", true)
-        set(value) { prefs.edit().putBoolean("widget_empty_days", value).apply() }
-
-    var agendaDisplay: String
-        get() = prefs.getString("agenda_display", "all")?.takeIf { it in setOf("all", "compact", "events") } ?: "all"
-        set(value) { require(value in setOf("all", "compact", "events")); prefs.edit().putString("agenda_display", value).apply() }
-
-    var collapseCalendarOnScroll: Boolean
-        get() = prefs.getBoolean("collapse_calendar_on_scroll", false)
-        set(value) { prefs.edit().putBoolean("collapse_calendar_on_scroll", value).apply() }
-
-    var startView: String
-        get() = prefs.getString("start_view", "Month")?.takeIf { it in setOf("Month", "Week", "Day", "last") } ?: "Month"
-        set(value) { require(value in setOf("Month", "Week", "Day", "last")); prefs.edit().putString("start_view", value).apply() }
-
-    var navigationAnimation: Boolean
-        get() = prefs.getBoolean("navigation_animation", true)
-        set(value) { prefs.edit().putBoolean("navigation_animation", value).apply() }
-
-    var materialYou: Boolean
-        get() = prefs.getBoolean("material_you", true)
-        set(value) { prefs.edit().putBoolean("material_you", value).apply() }
-
-    var showNavigationArrows: Boolean
-        get() = prefs.getBoolean("navigation_arrows", false)
-        set(value) { prefs.edit().putBoolean("navigation_arrows", value).apply() }
-
-    var swipeNavigation: Boolean
-        get() = prefs.getBoolean("swipe_navigation", true)
-        set(value) { prefs.edit().putBoolean("swipe_navigation", value).apply() }
-
-    var keepSelectedDate: Boolean
-        get() = prefs.getBoolean("keep_selected_date", false)
-        set(value) { prefs.edit().putBoolean("keep_selected_date", value).apply() }
-
-    var agendaRange: String
-        get() = choice("agenda_range", "continuous", setOf("continuous", "month", "week", "day"))
-        set(value) { saveChoice("agenda_range", value, setOf("continuous", "month", "week", "day")) }
-
-    var monthLayout: String
-        get() = choice("month_layout", "split", setOf("split", "full"))
-        set(value) { saveChoice("month_layout", value, setOf("split", "full")) }
-
-    var weekLayout: String
-        get() = choice(WEEK_LAYOUT, DEFAULT_WEEK_LAYOUT, WEEK_LAYOUTS)
-        set(value) { saveChoice(WEEK_LAYOUT, value, WEEK_LAYOUTS) }
-
-    var groupEmptyHours: Boolean
-        get() = prefs.getBoolean("group_empty_hours", false)
-        set(value) { prefs.edit().putBoolean("group_empty_hours", value).apply() }
-
-    var dayLayout: String
-        get() = choice("day_layout", "cards", setOf("cards", "timeline", "schedule"))
-        set(value) { saveChoice("day_layout", value, setOf("cards", "timeline", "schedule")) }
-
-    var dayTimelineZoom: Int
-        get() = prefs.getInt("day_timeline_zoom", 100).coerceIn(50, 200)
-        set(value) { prefs.edit().putInt("day_timeline_zoom", value.coerceIn(50, 200)).apply() }
-
-    var weekTimelineZoom: Int
-        get() = prefs.getInt("week_timeline_zoom", 100).coerceIn(50, 200)
-        set(value) { prefs.edit().putInt("week_timeline_zoom", value.coerceIn(50, 200)).apply() }
-
-    /** How strongly the empty hour tiles stand out from the background, in percent. */
-    var timelineTint: Int
-        get() = prefs.getInt(TIMELINE_TINT, DEFAULT_TIMELINE_TINT).coerceIn(0, 100)
-        set(value) { prefs.edit().putInt(TIMELINE_TINT, value.coerceIn(0, 100)).apply() }
+    /** The 5-day timeline shows Monday to Friday unless the user opts into five days starting at the selected date. */
+    var rollingFiveDays by bool(ROLLING_FIVE_DAYS, false)
 
     /** Tapping a date above a Week timeline selects it only when the user opts in. */
-    var weekHeaderSelection: Boolean
-        get() = prefs.getBoolean("week_header_selection", false)
-        set(value) { prefs.edit().putBoolean("week_header_selection", value).apply() }
+    var weekHeaderSelection by bool("week_header_selection", false)
 
-    /** Columns the continuous Week shows at once. */
-    var visibleWeekDays: Int
-        get() = prefs.getInt(VISIBLE_DAYS, DEFAULT_VISIBLE_DAYS).takeIf { it in VISIBLE_DAY_CHOICES } ?: DEFAULT_VISIBLE_DAYS
-        set(value) { require(value in VISIBLE_DAY_CHOICES); prefs.edit().putInt(VISIBLE_DAYS, value).apply() }
+    var visibleWeekDays: Int by pref({ getInt("visible_week_days", 5).takeIf { it in setOf(3, 5, 7) } ?: 5 }) {
+        require(it in setOf(3, 5, 7)); putInt("visible_week_days", it)
+    }
 
-    var layoutPreset: String
-        get() = choice("layout_preset", "sunlith", setOf("sunlith", "schedule", "planner", "custom")).let { if (it == "schedule") "custom" else it }
-        set(value) { saveChoice("layout_preset", value, setOf("sunlith", "schedule", "planner", "custom")) }
+    private fun <T> pref(read: SharedPreferences.() -> T, write: SharedPreferences.Editor.(T) -> Unit) = object : ReadWriteProperty<Any?, T> {
+        override fun getValue(thisRef: Any?, property: KProperty<*>): T = prefs.read()
+        override fun setValue(thisRef: Any?, property: KProperty<*>, value: T) = prefs.edit().apply { write(value) }.apply()
+    }
 
-    private fun choice(key: String, fallback: String, values: Set<String>): String =
-        prefs.getString(key, fallback)?.takeIf { it in values } ?: fallback
+    private fun bool(key: String, fallback: Boolean) = pref({ getBoolean(key, fallback) }) { putBoolean(key, it) }
 
-    private fun saveChoice(key: String, value: String, values: Set<String>) {
-        require(value in values)
-        prefs.edit().putString(key, value).apply()
+    private fun int(key: String, fallback: Int, fix: (Int) -> Int) = pref({ fix(getInt(key, fallback)) }) { putInt(key, fix(it)) }
+
+    /** A string limited to [values], reading [fallback] for anything else. */
+    private fun choice(key: String, fallback: String, vararg others: String) = (setOf(fallback) + others).let { values ->
+        pref({ getString(key, fallback)?.takeIf { it in values } ?: fallback }) { require(it in values); putString(key, it) }
     }
 
     companion object {
@@ -166,21 +93,5 @@ class SettingsStore(context: Context) {
         private const val VISIBLE_DAYS = "visible_week_days"
         private const val TIMELINE_TINT = "timeline_tint"
         private const val CONTINUOUS_WEEK_V3 = "continuous_week_v3"
-    }
-}
-
-internal data class WeekLayoutMigration(val layout: String?, val days: Int?)
-
-/**
- * The paged 3, 5 and 7 day timelines became column counts of the continuous Week. A saved timeline keeps its count,
- * and a timeline or continuous Week that never saved one keeps the seven columns it showed before. List and an unset
- * layout stay as they are, so an unset Week takes the new continuous default with five columns.
- */
-internal fun migrateWeekLayout(saved: String?, savedDays: Int?): WeekLayoutMigration {
-    val days = savedDays?.takeIf { it in SettingsStore.VISIBLE_DAY_CHOICES }
-    return when (saved) {
-        "timeline" -> WeekLayoutMigration("continuous", days ?: 7)
-        "continuous" -> WeekLayoutMigration(null, if (days == null) 7 else null)
-        else -> WeekLayoutMigration(null, null)
     }
 }

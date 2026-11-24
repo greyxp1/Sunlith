@@ -1,3 +1,4 @@
+# biweekly reads its properties relative to its own package at class initialization, so R8 must not rename it.
 -keep class biweekly.** { *; }
 -keep class com.github.mangstadt.** { *; }
 -dontwarn org.jsoup.**

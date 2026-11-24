@@ -17,6 +17,7 @@ import io.github.sunsind.sunlith.data.StoredEvent
 import io.github.sunsind.sunlith.device.DeviceLinkStore.hex
 import io.github.sunsind.sunlith.system.AppRefresh
 import io.github.sunsind.sunlith.system.SettingsStore
+import io.github.sunsind.sunlith.system.visibleCalendarIds
 import java.io.ByteArrayInputStream
 import java.time.Instant
 import java.time.LocalDate
@@ -32,7 +33,8 @@ import java.util.Locale
  * Tool handlers for the direct phone link. Inputs mirror integrations/mcp/src/device-validation.js.
  * Every calendar read or write checks the pairing allowlist and the event's actual provider calendar.
  */
-internal class DeviceLinkTools(context: Context, private val repository: CalendarRepository = CalendarRepository(context)) {
+internal class DeviceLinkTools(context: Context) {
+    private val repository = CalendarRepository(context)
     private val app = context.applicationContext
 
     fun call(tool: String, arguments: Map<String, Any?>, allowed: Set<Long>): Map<String, Any?> = try {
@@ -85,8 +87,7 @@ internal class DeviceLinkTools(context: Context, private val repository: Calenda
         val limit = args.int("limit", 1, 100) ?: 50
         val offset = args.pageToken()
         val calendars = repository.calendars().filter { it.id in allowed }
-        val settings = SettingsStore(app)
-        val shown = if (settings.hasChosenCalendars) settings.selectedCalendarIds else calendars.filter { it.visible }.mapTo(mutableSetOf()) { it.id }
+        val shown = SettingsStore(app).visibleCalendarIds(calendars)
         val page = calendars.drop(offset).take(limit)
         val default = calendars.firstOrNull { it.writable && it.id in shown } ?: calendars.firstOrNull { it.writable }
         return linkedMapOf(
@@ -295,7 +296,7 @@ internal class DeviceLinkTools(context: Context, private val repository: Calenda
         if (!calendar.writable) throw DeviceLinkError.calendarNotAllowed("This calendar is read-only on the phone.")
         val report = synchronized(WRITES) {
             val result = try {
-                IcsTransfer(app, repository).import(ByteArrayInputStream(bytes), calendarId)
+                IcsTransfer(repository).import(ByteArrayInputStream(bytes), calendarId)
             } catch (_: IllegalArgumentException) {
                 throw DeviceLinkError.badRequest("The calendar file could not be read. Use a complete .ics file with at most 2000 events.")
             } finally {
@@ -447,7 +448,7 @@ internal sealed interface EventTime {
 }
 
 /** Strict argument reader: unknown keys, nulls and wrong JSON types are rejected with field-level messages that never echo values. */
-internal class Args(private val values: Map<String, Any?>, allowedKeys: Set<String>) {
+private class Args(private val values: Map<String, Any?>, allowedKeys: Set<String>) {
     init {
         if (!allowedKeys.containsAll(values.keys)) throw DeviceLinkError.badRequest("Unknown field: ${values.keys.first { it !in allowedKeys }.take(40).filter { it.isLetterOrDigit() }}.")
         values.forEach { (key, value) -> if (value == null) throw invalid(key) }

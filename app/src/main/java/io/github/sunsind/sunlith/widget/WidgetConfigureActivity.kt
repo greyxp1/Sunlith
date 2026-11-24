@@ -5,8 +5,6 @@ import android.content.ComponentName
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.SystemBarStyle
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
@@ -19,7 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -27,6 +24,7 @@ import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.ui.Screen
 import io.github.sunsind.sunlith.ui.LocalPalette
 import io.github.sunsind.sunlith.ui.SettingsScreen
+import io.github.sunsind.sunlith.ui.SystemBarsForPalette
 import io.github.sunsind.sunlith.ui.SunlithTheme
 import io.github.sunsind.sunlith.ui.SunlithViewModel
 
@@ -44,12 +42,7 @@ class WidgetConfigureActivity : ComponentActivity() {
         setContent {
             SunlithTheme(vm.themeMode, vm.materialYou) {
                 val palette = LocalPalette.current
-                DisposableEffect(palette.dark) {
-                    val bars = if (palette.dark) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
-                    else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
-                    enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
-                    onDispose { }
-                }
+                SystemBarsForPalette()
                 LaunchedEffect(vm.stack.isEmpty()) { if (vm.stack.isEmpty()) finish() }
                 Column(Modifier.fillMaxSize().background(palette.background).navigationBarsPadding()) {
                     Box(Modifier.weight(1f)) { SettingsScreen(vm, initialPage = "widget") }

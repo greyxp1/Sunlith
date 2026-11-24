@@ -8,7 +8,7 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
 
-internal class DeviceLinkPairing(val tokenSha256: ByteArray, val calendarIds: Set<Long>, val pairedAtMillis: Long? = null)
+internal class DeviceLinkPairing(val tokenSha256: ByteArray, val calendarIds: Set<Long>, val pairedAtMillis: Long?)
 
 internal data class OperationRecord(val key: String, val payloadHash: String, val eventId: Long)
 
@@ -72,7 +72,8 @@ internal object DeviceLinkStore {
      * Notes a 200 answer for [pairing]. Ignored if that pairing was revoked or replaced meanwhile. The file is written
      * at most once per [SUCCESS_WRITE_INTERVAL_MS], so after a crash the saved time can be up to that much older.
      */
-    fun recordSuccess(context: Context, pairing: DeviceLinkPairing, now: Long = System.currentTimeMillis()): Boolean {
+    fun recordSuccess(context: Context, pairing: DeviceLinkPairing): Boolean {
+        val now = System.currentTimeMillis()
         synchronized(lock) {
             if (cached !== pairing) return false
             loadLastSuccess(context)
@@ -87,15 +88,6 @@ internal object DeviceLinkStore {
             }
             return true
         }
-    }
-
-    /** Tests use this to read the files again. */
-    internal fun dropCache() = synchronized(lock) {
-        loaded = false
-        cached = null
-        lastSuccessLoaded = false
-        lastSuccess = null
-        lastSuccessWritten = null
     }
 
     private fun loadLastSuccess(context: Context): Long? {

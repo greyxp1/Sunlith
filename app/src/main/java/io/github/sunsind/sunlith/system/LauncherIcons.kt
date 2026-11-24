@@ -112,21 +112,21 @@ object LauncherIcons {
                     others.map { PackageManager.ComponentEnabledSetting(it, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, FLAGS) },
             )
         } else {
-            switchSequentially(context, style) { component, state -> pm.setComponentEnabledSetting(component, state, FLAGS) }
+            switchSequentially(context, style)
         }
     }
 
     /**
-     * API 26 to 32 path, exposed for tests. Enables the new alias before disabling the others so the launcher never
+     * API 26 to 32 path. Enables the new alias before disabling the others so the launcher never
      * sees zero entries, and restores the previous states if any call fails.
      */
-    internal fun switchSequentially(context: Context, style: Style, set: (ComponentName, Int) -> Unit) {
+    private fun switchSequentially(context: Context, style: Style) {
         val pm = context.packageManager
         val before = Style.entries.associate { component(context, it) to pm.getComponentEnabledSetting(component(context, it)) }
         val target = component(context, style)
         try {
-            set(target, PackageManager.COMPONENT_ENABLED_STATE_ENABLED)
-            before.keys.filter { it != target }.forEach { set(it, PackageManager.COMPONENT_ENABLED_STATE_DISABLED) }
+            pm.setComponentEnabledSetting(target, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, FLAGS)
+            before.keys.filter { it != target }.forEach { pm.setComponentEnabledSetting(it, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, FLAGS) }
         } catch (error: RuntimeException) {
             val defaultComponent = component(context, Default)
             fun on(entry: Map.Entry<ComponentName, Int>) = entry.value == PackageManager.COMPONENT_ENABLED_STATE_ENABLED ||

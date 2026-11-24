@@ -43,7 +43,6 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material3.AlertDialog
@@ -59,12 +58,10 @@ import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -76,7 +73,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -84,7 +80,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -162,51 +157,38 @@ fun SettingsScreen(vm: SunlithViewModel, initialPage: String = "root") {
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
                 when (shown) {
                     "root" -> {
-                        ClickRow(stringResource(R.string.settings_general), null) { page = "general" }
-                        ClickRow(stringResource(R.string.beta_settings_appearance), null) { page = "appearance" }
-                        ClickRow(stringResource(R.string.title_calendars), null) { vm.open(Screen.Calendars) }
-                        ClickRow(stringResource(R.string.beta_settings_widget), null) { page = "widget" }
-                        ClickRow(stringResource(R.string.device_link_title), null) { vm.open(Screen.DeviceLink) }
-                        ClickRow(stringResource(R.string.beta_settings_transfer), null) { page = "transfer" }
-                        ClickRow(stringResource(R.string.beta_settings_about), null) { page = "about" }
+                        ClickRow(stringResource(R.string.settings_general)) { page = "general" }
+                        ClickRow(stringResource(R.string.beta_settings_appearance)) { page = "appearance" }
+                        ClickRow(stringResource(R.string.title_calendars)) { vm.open(Screen.Calendars) }
+                        ClickRow(stringResource(R.string.beta_settings_widget)) { page = "widget" }
+                        ClickRow(stringResource(R.string.device_link_title)) { vm.open(Screen.DeviceLink) }
+                        ClickRow(stringResource(R.string.beta_settings_transfer)) { page = "transfer" }
+                        ClickRow(stringResource(R.string.beta_settings_about)) { page = "about" }
                     }
                     "appearance" -> {
                         SectionTitle(stringResource(R.string.settings_layout))
                         val shownPreset = if (vm.monthLayout == "full") "planner" else "sunlith"
                         Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                             LayoutPresetChoices(shownPreset) {
-                                if (it != shownPreset) vm.changeMonthLayout(if (it == "planner") "full" else "split")
+                                if (it != shownPreset) vm.monthLayout = if (it == "planner") "full" else "split"
                             }
                         }
-                        DropdownRow(
-                            stringResource(R.string.view_week),
-                            vm.weekLayout,
-                            listOf(
-                                "list" to stringResource(R.string.settings_week_list),
-                                "continuous" to stringResource(R.string.settings_week_continuous),
-                            ),
-                            vm::changeWeekLayout,
-                        )
-                        if (vm.weekLayout == "continuous") {
-                            DropdownRow(
-                                stringResource(R.string.settings_visible_days),
-                                vm.visibleWeekDays,
-                                SettingsStore.VISIBLE_DAY_CHOICES.map { it to pluralStringResource(R.plurals.visible_days_count, it, it) },
-                                vm::changeVisibleWeekDays,
-                            )
+                        DropdownRow(stringResource(R.string.view_week), vm.currentLayoutChoice(ViewMode.Week).orEmpty(),
+                            layoutChoices(ViewMode.Week).map { it to stringResource(layoutLabel(it)) }) { vm.setLayoutChoice(ViewMode.Week, it) }
+                        if (vm.weekLayout == "timeline" && vm.visibleWeekDays == 5) {
+                            ToggleRow(stringResource(R.string.settings_rolling_five_days), stringResource(R.string.settings_rolling_five_days_short), vm.rollingFiveDays) { vm.rollingFiveDays = it }
                         }
-                        ToggleRow(stringResource(R.string.settings_week_header_selection), stringResource(R.string.settings_week_header_selection_short), vm.weekHeaderSelection, vm::changeWeekHeaderSelection)
-                        if (vm.weekLayout != "list") TimelineZoomRow(stringResource(R.string.settings_week_zoom), vm.weekTimelineZoom, vm::changeWeekTimelineZoom)
+                        ToggleRow(stringResource(R.string.settings_week_header_selection), stringResource(R.string.settings_week_header_selection_short), vm.weekHeaderSelection) { vm.weekHeaderSelection = it }
+                        if (vm.weekLayout != "list") TimelineZoomRow(stringResource(R.string.settings_week_zoom), vm.weekTimelineZoom) { vm.weekTimelineZoom = it }
                         DropdownRow(
                             stringResource(R.string.view_day), vm.dayLayout,
                             listOf("cards" to stringResource(R.string.settings_week_list),
                                 "timeline" to stringResource(R.string.settings_day_all_hours),
-                                "schedule" to stringResource(R.string.custom_schedule)),
-                            vm::changeDayLayout,
-                        )
+                                "schedule" to stringResource(R.string.custom_schedule))
+                        ) { vm.dayLayout = it }
                         // The title already says Week, so the toggle needs no second line.
-                        ToggleRow(stringResource(R.string.settings_group_empty_hours), null, vm.groupEmptyHours, vm::changeGroupEmptyHours)
-                        ToggleRow(stringResource(R.string.beta_collapse_calendar), null, vm.collapseCalendarOnScroll, vm::changeCollapseCalendarOnScroll)
+                        ToggleRow(stringResource(R.string.settings_group_empty_hours), null, vm.groupEmptyHours) { vm.groupEmptyHours = it }
+                        ToggleRow(stringResource(R.string.beta_collapse_calendar), null, vm.collapseCalendarOnScroll) { vm.collapseCalendarOnScroll = it }
                         SectionTitle(stringResource(R.string.custom_colors))
                         DropdownRow(
                             stringResource(R.string.settings_theme),
@@ -215,16 +197,13 @@ fun SettingsScreen(vm: SunlithViewModel, initialPage: String = "root") {
                                 "system" to stringResource(R.string.theme_system),
                                 "light" to stringResource(R.string.theme_light),
                                 "dark" to stringResource(R.string.theme_dark),
-                            ),
-                            vm::setTheme,
-                        )
+                            )
+                        ) { vm.themeMode = it }
                         ToggleRow(
                             stringResource(R.string.settings_wallpaper_colors),
                             if (Build.VERSION.SDK_INT < 31) stringResource(R.string.custom_material_you_fallback_short) else null,
-                            vm.materialYou,
-                            vm::changeMaterialYou,
-                        )
-                        TimelineTintRow(vm.timelineTint, vm::changeTimelineTint)
+                            vm.materialYou
+                        ) { vm.materialYou = it }
                         LauncherIconSection(vm)
                     }
                     "general" -> {
@@ -236,20 +215,9 @@ fun SettingsScreen(vm: SunlithViewModel, initialPage: String = "root") {
                                 "Week" to stringResource(R.string.view_week),
                                 "Day" to stringResource(R.string.view_day),
                                 "last" to stringResource(R.string.beta_last_view),
-                            ),
-                            vm::changeStartView,
-                        )
-                        DropdownRow(
-                            stringResource(R.string.settings_day_view),
-                            vm.dayLayout,
-                            listOf(
-                                "timeline" to stringResource(R.string.settings_day_all_hours),
-                                "cards" to stringResource(R.string.settings_week_list),
-                                "schedule" to stringResource(R.string.custom_schedule),
-                            ),
-                            vm::changeDayLayout,
-                        )
-                        ToggleRow(stringResource(R.string.settings_monday), null, vm.weekStartsMonday, vm::setMondayFirst)
+                            )
+                        ) { vm.startView = it }
+                        ToggleRow(stringResource(R.string.settings_monday), null, vm.weekStartsMonday) { vm.weekStartsMonday = it }
 
                         SectionTitle(stringResource(R.string.custom_agenda))
                         DropdownRow(
@@ -260,9 +228,8 @@ fun SettingsScreen(vm: SunlithViewModel, initialPage: String = "root") {
                                 "month" to stringResource(R.string.view_month),
                                 "week" to stringResource(R.string.view_week),
                                 "day" to stringResource(R.string.view_day),
-                            ),
-                            vm::changeAgendaRange,
-                        )
+                            )
+                        ) { vm.agendaRange = it }
                         DropdownRow(
                             stringResource(R.string.settings_agenda_days),
                             vm.agendaDisplay,
@@ -270,15 +237,14 @@ fun SettingsScreen(vm: SunlithViewModel, initialPage: String = "root") {
                                 "all" to stringResource(R.string.settings_agenda_all),
                                 "compact" to stringResource(R.string.settings_agenda_grouped),
                                 "events" to stringResource(R.string.settings_agenda_events),
-                            ),
-                            vm::changeAgendaDisplay,
-                        )
+                            )
+                        ) { vm.agendaDisplay = it }
 
                         SectionTitle(stringResource(R.string.custom_navigation))
-                        ToggleRow(stringResource(R.string.settings_keep_date), null, vm.keepSelectedDate, vm::changeKeepSelectedDate)
-                        ToggleRow(stringResource(R.string.custom_navigation_arrows), null, vm.showNavigationArrows, vm::changeShowNavigationArrows)
-                        ToggleRow(stringResource(R.string.custom_swipe_navigation), null, vm.swipeNavigation, vm::changeSwipeNavigation)
-                        ToggleRow(stringResource(R.string.beta_navigation_animation), null, vm.navigationAnimation, vm::changeNavigationAnimation)
+                        ToggleRow(stringResource(R.string.settings_keep_date), null, vm.keepSelectedDate) { vm.keepSelectedDate = it }
+                        ToggleRow(stringResource(R.string.custom_navigation_arrows), null, vm.showNavigationArrows) { vm.showNavigationArrows = it }
+                        ToggleRow(stringResource(R.string.custom_swipe_navigation), null, vm.swipeNavigation) { vm.swipeNavigation = it }
+                        ToggleRow(stringResource(R.string.beta_navigation_animation), null, vm.navigationAnimation) { vm.navigationAnimation = it }
 
                         SectionTitle(stringResource(R.string.beta_settings_reminders))
                         ToggleRow(
@@ -286,25 +252,25 @@ fun SettingsScreen(vm: SunlithViewModel, initialPage: String = "root") {
                             if (vm.remindersEnabled && !vm.notificationsGranted) stringResource(R.string.settings_reminders_blocked) else null,
                             vm.remindersEnabled && vm.notificationsGranted,
                         ) { on ->
-                            if (!on) vm.setReminders(false)
+                            if (!on) vm.remindersEnabled = false
                             else if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
                                 notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                            } else vm.setReminders(true)
+                            } else vm.remindersEnabled = true
                         }
-                        ClickRow(stringResource(R.string.beta_notification_settings), null) { context.openAppSettings() }
+                        ClickRow(stringResource(R.string.beta_notification_settings)) { context.openAppSettings() }
                     }
                     "transfer" -> {
-                        ClickRow(stringResource(R.string.settings_import), null) {
+                        ClickRow(stringResource(R.string.settings_import)) {
                             try { importLauncher.launch(IcsTypes) } catch (_: ActivityNotFoundException) { vm.message(context.getString(R.string.msg_no_file_picker)) }
                         }
                         ClickRow(stringResource(R.string.settings_export), if (vm.exporting) stringResource(R.string.settings_exporting) else null) {
                             exportIds = vm.activeIds
                             exportChooser = true
                         }
-                        ClickRow(stringResource(R.string.help_migration_title), null) { help = R.string.help_migration_title }
+                        ClickRow(stringResource(R.string.help_migration_title)) { help = R.string.help_migration_title }
                     }
                     "widget" -> {
-                        SettingsNote(stringResource(R.string.settings_widget_shared))
+                        Note(stringResource(R.string.settings_widget_shared))
                         SectionTitle(stringResource(R.string.beta_widget_days))
                         var days by remember(vm.widgetDays) { mutableStateOf(vm.widgetDays.toFloat()) }
                         val daysValue = pluralStringResource(R.plurals.beta_widget_days_value, Math.round(days), Math.round(days))
@@ -312,13 +278,13 @@ fun SettingsScreen(vm: SunlithViewModel, initialPage: String = "root") {
                         val daysLabel = stringResource(R.string.beta_widget_days)
                         Slider(
                             value = days, onValueChange = { days = Math.round(it).toFloat() },
-                            onValueChangeFinished = { vm.changeWidgetDays(Math.round(days)) },
+                            onValueChangeFinished = { vm.widgetDays = Math.round(days) },
                             valueRange = 1f..31f, steps = 29,
                             modifier = Modifier.padding(horizontal = 16.dp).heightIn(min = 48.dp).semantics { contentDescription = daysLabel; stateDescription = daysValue },
                             colors = sliderColors(),
                         )
-                        ToggleRow(stringResource(R.string.beta_widget_empty_days), null, vm.widgetShowEmptyDays, vm::changeWidgetShowEmptyDays)
-                        ToggleRow(stringResource(R.string.beta_widget_calendar_name), null, vm.widgetShowCalendarName, vm::changeWidgetShowCalendarName)
+                        ToggleRow(stringResource(R.string.beta_widget_empty_days), null, vm.widgetShowEmptyDays) { vm.widgetShowEmptyDays = it }
+                        ToggleRow(stringResource(R.string.beta_widget_calendar_name), null, vm.widgetShowCalendarName) { vm.widgetShowCalendarName = it }
                         SectionTitle(stringResource(R.string.settings_widget_opacity))
                         Text("${vm.widgetOpacity}%", Modifier.padding(horizontal = 16.dp), color = p.ink, style = MaterialTheme.typography.bodyLarge)
                         val opacityLabel = stringResource(R.string.settings_widget_opacity)
@@ -331,8 +297,7 @@ fun SettingsScreen(vm: SunlithViewModel, initialPage: String = "root") {
                     }
                     "about" -> {
                         ValueRow(stringResource(R.string.settings_version), version)
-                        AppUpdateSection()
-                        ClickRow(stringResource(R.string.about_source), null) { context.openUrl(SOURCE_URL, vm) }
+                        ClickRow(stringResource(R.string.about_source)) { context.openUrl(SOURCE_URL, vm) }
                     }
                 }
             }
@@ -422,40 +387,6 @@ private fun LauncherIconPreview(icon: Int, size: Dp) {
     if (bitmap != null) Image(bitmap, contentDescription = null, modifier = Modifier.size(size))
 }
 
-@Composable
-private fun SettingsNote(text: String) {
-    Text(text, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = LocalPalette.current.muted, style = MaterialTheme.typography.bodyMedium)
-}
-
-@Composable
-private fun ClickRow(title: String, subtitle: String?, onClick: (() -> Unit)?) {
-    val p = LocalPalette.current
-    val base = Modifier.fillMaxWidth().heightIn(min = 56.dp)
-    Row(
-        (if (onClick != null) base.clickable(role = Role.Button, onClick = onClick) else base).padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge, color = p.ink)
-            subtitle?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = p.muted) }
-        }
-        if (onClick != null) Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, Modifier.padding(start = 12.dp).size(20.dp), tint = p.muted)
-    }
-}
-
-@Composable
-private fun ValueRow(title: String, value: String) {
-    val p = LocalPalette.current
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 56.dp).semantics(mergeDescendants = true) {}.padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(title, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = p.ink)
-        Spacer(Modifier.width(12.dp))
-        Text(value, style = MaterialTheme.typography.bodyLarge, color = p.muted, maxLines = 1)
-    }
-}
-
 /** Shows the current choice, stacking it below the title at large text sizes. */
 @Composable
 private fun <T> DropdownRow(title: String, value: T, options: List<Pair<T, String>>, onSelect: (T) -> Unit) {
@@ -480,15 +411,14 @@ private fun <T> DropdownRow(title: String, value: T, options: List<Pair<T, Strin
                         textAlign = if (stacked) TextAlign.Start else TextAlign.End)
                     Icon(Icons.Outlined.ArrowDropDown, null, tint = p.muted)
                 }
-                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, containerColor = p.surface,
-                    modifier = Modifier.semantics { testTagsAsResourceId = true }) {
+                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, containerColor = p.surface) {
                     options.forEach { (key, label) ->
                         val on = key == value
                         DropdownMenuItem(
                             text = { Text(label, color = p.ink) },
                             onClick = { expanded = false; if (!on) onSelect(key) },
                             trailingIcon = { if (on) Icon(Icons.Outlined.Check, null, tint = p.accent) },
-                            modifier = Modifier.testTag("settings_choice_$key").semantics { selected = on },
+                            modifier = Modifier.semantics { selected = on },
                         )
                     }
                 }
@@ -500,22 +430,6 @@ private fun <T> DropdownRow(title: String, value: T, options: List<Pair<T, Strin
 @Composable
 private fun sliderColors() = LocalPalette.current.let { p ->
     SliderDefaults.colors(thumbColor = p.accent, activeTrackColor = p.accent, inactiveTrackColor = p.raised)
-}
-
-@Composable
-private fun ToggleRow(title: String, subtitle: String?, checked: Boolean, onChange: (Boolean) -> Unit) {
-    val p = LocalPalette.current
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 56.dp).toggleable(checked, role = Role.Switch, onValueChange = onChange).padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge, color = p.ink)
-            subtitle?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = p.muted) }
-        }
-        Spacer(Modifier.width(12.dp))
-        Switch(checked = checked, onCheckedChange = null, colors = switchColors())
-    }
 }
 
 @Composable
@@ -710,7 +624,7 @@ fun CalendarsScreen(vm: SunlithViewModel) {
         LazyColumn(Modifier.fillMaxSize().padding(pad), contentPadding = PaddingValues(bottom = 48.dp)) {
             item { Text(stringResource(R.string.calendars_intro), Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = p.muted, style = MaterialTheme.typography.bodyMedium) }
             item(key = "school-schedule") {
-                ClickRow(stringResource(R.string.school_title), null) { vm.open(Screen.SchoolSchedule) }
+                ClickRow(stringResource(R.string.school_title)) { vm.open(Screen.SchoolSchedule) }
             }
             if (vm.loaded && vm.calendars.isEmpty()) {
                 item { Text(stringResource(R.string.no_calendars_on_phone), Modifier.padding(16.dp), style = MaterialTheme.typography.bodyLarge) }

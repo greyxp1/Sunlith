@@ -46,7 +46,7 @@ internal data class SchoolRecord(
     val portal: String, val username: String, val password: String, val zone: String, val calendarId: Long,
     val account: String, val connection: String, val token: String, val expiresAt: Long,
     val term: String = "", val baseline: List<SchoolItem> = emptyList(), val ledger: List<SchoolOwned> = emptyList(),
-    val initialized: Boolean = false, val lastSuccess: Long? = null, val notifications: SchoolNotificationPreferences = SchoolNotificationPreferences(),
+    val lastSuccess: Long? = null, val notifications: SchoolNotificationPreferences = SchoolNotificationPreferences(),
     val lastFailure: String? = null, val journal: SchoolJournal? = null, val calendarIdentity: Map<String, String?> = emptyMap(), val disconnecting: String? = null,
     val termKey: String = "",
     val pendingReview: String? = null,
@@ -54,6 +54,8 @@ internal data class SchoolRecord(
     /** Whether the current failure streak already reached the connection notification step. Only meaningful while [lastFailure] is set. */
     val failureNotified: Boolean = false,
 ) {
+    /** A first full sync finished. Records keep writing the flag so older versions can still read them. */
+    val initialized: Boolean get() = lastSuccess != null
     fun json(): JSONObject = JSONObject().put("version", 1).put("portal", portal).put("username", username).put("password", password)
         .put("zone", zone).put("calendar", calendarId).put("account", account).put("connection", connection).put("token", token).put("expires", expiresAt)
         .put("term", term).put("baseline", JSONArray(baseline.map { it.json() })).put("ledger", JSONArray(ledger.map { it.json() }))
@@ -71,7 +73,7 @@ internal data class SchoolRecord(
             schoolRequire(j.getInt("version") == 1)
             return SchoolRecord(j.getString("portal"), j.getString("username"), j.getString("password"), j.getString("zone"), j.getLong("calendar"),
                 j.getString("account"), j.getString("connection"), j.getString("token"), j.getLong("expires"), j.getString("term"),
-                j.getJSONArray("baseline").items(), j.getJSONArray("ledger").owned(), j.getBoolean("initialized"),
+                j.getJSONArray("baseline").items(), j.getJSONArray("ledger").owned(),
                 if (j.isNull("success")) null else j.getLong("success"), SchoolNotificationPreferences(j.getBoolean("notify"),
                     j.getJSONArray("categories").strings().map { SchoolAlert.valueOf(it) }.toSet().let {
                         if (j.optBoolean("administrationCategory", false)) it else it + SchoolAlert.ADMINISTRATION_MESSAGES
@@ -90,45 +92,64 @@ private fun JSONArray.items() = (0 until length()).map { SchoolItem.read(getJSON
 private fun JSONArray.owned() = (0 until length()).map { SchoolOwned.read(getJSONObject(it)) }
 
 internal class SchoolStore(context: Context) {
-    private val file = AtomicFile(File(context.noBackupFilesDir, "school-connection-v1.bin"))
+    private val file = SchoolSecureFile(context, "school-connection-v1.bin", "sunlith-school-v1", "sunlith-school-connection-v1", 12 * 1024 * 1024)
+    private val key = context.noBackupFilesDir.path
+    /** Reads and decrypts the stored record. */
     fun load(): SchoolRecord? = synchronized(lock) {
-        if (!file.baseFile.exists() && !File(file.baseFile.path + ".bak").exists()) return@synchronized null
-        try {
-            val data = file.openRead().use { input ->
-                schoolRequire(input.available() <= 12 * 1024 * 1024)
-                input.readBytes()
-            }
-            schoolRequire(data.size >= 29 && data[0] == 1.toByte())
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, data.copyOfRange(1, 13)))
-            cipher.updateAAD(AAD)
-            SchoolRecord.read(JSONObject(String(cipher.doFinal(data.copyOfRange(13, data.size)), Charsets.UTF_8)))
-        } catch (_: Exception) { throw SchoolFailure(SchoolError.STORAGE) }
+        val record = if (!file.exists()) null
+            else try { SchoolRecord.read(JSONObject(file.read())) } catch (_: Exception) { memory.remove(key); throw SchoolFailure(SchoolError.STORAGE) }
+        record.also { memory[key] = it }
     }
+    /**
+     * The record as last read or written in this process, for frequent readers such as event annotation and edit checks.
+     * Every write goes through this class, so the copy matches the file without decrypting it again.
+     */
+    fun current(): SchoolRecord? = synchronized(lock) { if (key in memory) memory[key] else load() }
     fun save(record: SchoolRecord) = synchronized(lock) {
-        try {
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.ENCRYPT_MODE, key())
-            cipher.updateAAD(AAD)
-            val bytes = byteArrayOf(1) + cipher.iv + cipher.doFinal(record.json().toString().toByteArray(Charsets.UTF_8))
-            schoolRequire(bytes.size <= 12 * 1024 * 1024)
-            val stream = file.startWrite()
-            try { stream.write(bytes); file.finishWrite(stream) } catch (e: Exception) { file.failWrite(stream); throw e }
-        } catch (_: Exception) { throw SchoolFailure(SchoolError.STORAGE) }
+        try { file.write(record.json().toString()) } catch (_: Exception) { throw SchoolFailure(SchoolError.STORAGE) }
+        memory[key] = record
     }
-    fun clear() = synchronized(lock) { file.delete(); if (file.baseFile.exists() || File(file.baseFile.path + ".bak").exists()) throw SchoolFailure(SchoolError.STORAGE) }
-    private fun key(): SecretKey {
-        val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (store.getKey(ALIAS, null) as? SecretKey)?.let { return it }
-        return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
-            init(KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .setRandomizedEncryptionRequired(true).build())
-        }.generateKey()
+    fun clear() = synchronized(lock) {
+        memory.remove(key)
+        file.delete(); if (file.exists()) throw SchoolFailure(SchoolError.STORAGE)
+        memory[key] = null
     }
     companion object {
         private val lock = Any()
-        private const val ALIAS = "sunlith-school-v1"
-        private val AAD = "sunlith-school-connection-v1".toByteArray(Charsets.UTF_8)
+        private val memory = HashMap<String, SchoolRecord?>()
+    }
+}
+
+/** An AtomicFile holding one AndroidKeyStore AES-GCM payload: a version byte, the 12 byte IV, then the ciphertext. */
+internal class SchoolSecureFile(context: Context, name: String, private val alias: String, aad: String, private val maxBytes: Int) {
+    private val file = AtomicFile(File(context.noBackupFilesDir, name))
+    private val aad = aad.toByteArray(Charsets.UTF_8)
+    fun exists() = file.baseFile.exists() || File(file.baseFile.path + ".bak").exists()
+    fun read(): String {
+        val data = file.openRead().use { input -> schoolRequire(input.available() <= maxBytes); input.readBytes() }
+        schoolRequire(data.size >= 29 && data[0] == 1.toByte())
+        val cipher = cipher(Cipher.DECRYPT_MODE, GCMParameterSpec(128, data.copyOfRange(1, 13)))
+        return String(cipher.doFinal(data.copyOfRange(13, data.size)), Charsets.UTF_8)
+    }
+    fun write(text: String) {
+        val cipher = cipher(Cipher.ENCRYPT_MODE, null)
+        val bytes = byteArrayOf(1) + cipher.iv + cipher.doFinal(text.toByteArray(Charsets.UTF_8))
+        schoolRequire(bytes.size <= maxBytes)
+        val stream = file.startWrite()
+        try { stream.write(bytes); file.finishWrite(stream) } catch (e: Exception) { file.failWrite(stream); throw e }
+    }
+    fun delete() = file.delete()
+    private fun cipher(mode: Int, spec: GCMParameterSpec?) = Cipher.getInstance("AES/GCM/NoPadding").apply {
+        if (spec == null) init(mode, key()) else init(mode, key(), spec)
+        updateAAD(aad)
+    }
+    private fun key(): SecretKey {
+        val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        (store.getKey(alias, null) as? SecretKey)?.let { return it }
+        return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
+            init(KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setRandomizedEncryptionRequired(true).build())
+        }.generateKey()
     }
 }

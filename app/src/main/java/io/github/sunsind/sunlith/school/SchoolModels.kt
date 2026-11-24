@@ -1,7 +1,6 @@
 package io.github.sunsind.sunlith.school
 
 import java.time.ZoneId
-import kotlinx.coroutines.flow.StateFlow
 
 enum class SchoolAlert {
     TEACHER_ABSENCES, CLASS_TIMES, ROOMS, TEACHERS, ADDED_CLASSES, REMOVED_CLASSES,
@@ -18,7 +17,7 @@ enum class SchoolError {
     INVALID_DATA, UNAVAILABLE, STORAGE, LEGACY_COLLISION, CALENDAR_CHANGED, CALENDAR_LIMIT,
 }
 
-data class SchoolChangeSummary(val added: Int, val updated: Int, val removed: Int, val linked: Int = 0)
+data class SchoolChangeSummary(val added: Int, val updated: Int, val removed: Int, val linked: Int)
 
 data class SchoolCalendarChoice(val id: Long, val name: String)
 
@@ -38,17 +37,3 @@ data class SchoolScheduleState(
     val notifications: SchoolNotificationPreferences = SchoolNotificationPreferences(),
     val pendingChanges: SchoolChangeSummary? = null,
 )
-
-interface SchoolScheduleController {
-    val state: StateFlow<SchoolScheduleState>
-    suspend fun connect(portalAddress: String, username: String, password: String, timeZone: String, calendarId: Long? = null)
-    suspend fun refresh()
-    suspend fun setNotifications(preferences: SchoolNotificationPreferences)
-    suspend fun setNotificationsEnabled(enabled: Boolean) = setNotifications(state.value.notifications.copy(enabled = enabled))
-    suspend fun setCategory(alert: SchoolAlert, enabled: Boolean) = setNotifications(state.value.notifications.let {
-        it.copy(categories = if (enabled) it.categories + alert else it.categories - alert)
-    })
-    suspend fun applyPendingChanges()
-    suspend fun discardPendingChanges()
-    suspend fun disconnect(removeSchoolEvents: Boolean)
-}

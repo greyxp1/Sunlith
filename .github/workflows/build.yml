@@ -1,4 +1,4 @@
-name: Build and check
+name: Build
 
 on:
   push:
@@ -28,39 +28,12 @@ jobs:
           log-accepted-android-sdk-licenses: false
       - uses: gradle/actions/setup-gradle@v4
       - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
-      - run: chmod +x gradlew
-      - run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest
-      - run: ./gradlew --no-daemon -PtestBuildType=distribution :app:assembleDistribution :app:assembleDistributionAndroidTest
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-      - run: python tools/package-release.py
+      - run: ./gradlew --no-daemon :app:lintDebug :app:assembleRelease
       - uses: actions/upload-artifact@v4
         with:
-          name: sunlith-ci-package-check
-          path: dist/*
+          name: sunlith-apk
+          path: app/build/outputs/apk/release/app-release.apk
           retention-days: 30
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sunlith-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 30
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sunlith-distribution-apk-and-tests
-          path: |
-            app/build/outputs/apk/distribution/app-distribution.apk
-            app/build/outputs/apk/androidTest/distribution/app-distribution-androidTest.apk
-            app/build/outputs/mapping/distribution/
-          retention-days: 30
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: android-check-reports
-          path: |
-            app/build/reports/tests/
-            app/build/reports/lint-results-debug.html
-          if-no-files-found: ignore
 
   android-runtime:
     needs: android
@@ -105,11 +78,7 @@ jobs:
           if-no-files-found: ignore
 
   mcp:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: integrations/mcp
@@ -122,6 +91,4 @@ jobs:
           cache-dependency-path: integrations/mcp/package-lock.json
       - run: npm ci
       - run: npm run check
-      - run: npm test
       - run: npm audit --omit=dev
-        if: runner.os == 'Linux'

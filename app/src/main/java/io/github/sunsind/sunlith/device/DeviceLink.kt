@@ -129,9 +129,9 @@ object DeviceLink {
         return null
     }
 
-    internal const val LOOPBACK = "127.0.0.1"
-    internal const val CALENDAR_MISSING = "Allow calendar access before starting the phone link."
-    internal const val NOTIFICATIONS_MISSING = "Allow notifications before starting the phone link."
+    private const val LOOPBACK = "127.0.0.1"
+    private const val CALENDAR_MISSING = "Allow calendar access before starting the phone link."
+    private const val NOTIFICATIONS_MISSING = "Allow notifications before starting the phone link."
     internal const val START_FAILED = "The phone link could not start. Open Sunlith and try again."
     internal const val BIND_FAILED = "The phone link could not open port 39393. Another app may be using it."
 }

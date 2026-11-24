@@ -1,8 +1,6 @@
 package io.github.sunsind.sunlith.ui
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.scrollable
@@ -26,11 +24,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
@@ -38,9 +32,7 @@ import androidx.compose.ui.unit.dp
 import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.data.CalendarEvent
 import java.time.LocalDate
-import java.time.LocalTime
 import java.time.ZoneId
-import kotlin.math.ceil
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -48,12 +40,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 
 private const val TIMELINE_CENTER = 1_000_000
 private const val TIMELINE_DAYS = 2_000_001
 
-internal class TimelinePanAnchor(var index: Int, var fraction: Float = 0f) {
+private class TimelinePanAnchor(var index: Int, var fraction: Float = 0f) {
     fun record(index: Int, offset: Int, width: Int) {
         if (width <= 0) return
         this.index = index
@@ -87,12 +78,9 @@ internal fun ContinuousTimeline(
         if (vm.timelineNavigationRequest != vm.handledTimelineNavigation) vm.selectedDate else vm.timelineViewportStart ?: vm.selectedDate))
     val titleStyle = MaterialTheme.typography.labelMedium
     val railStyle = MaterialTheme.typography.labelSmall
-    val titleSize = with(density) { titleStyle.fontSize.toDp() }
-    val lineSize = with(density) { titleStyle.lineHeight.toDp() }
-    val labelMeasurer = rememberTextMeasurer()
-    val measuredTitle = with(density) {
-        labelMeasurer.measure("Ag", titleStyle.copy(fontWeight = FontWeight.SemiBold), maxLines = 1).size.height.toDp()
-    }
+    val text = rememberTimelineText(f, titleStyle, railStyle)
+    val titleSize = text.titleSize
+    val lineSize = text.titleLine
     val zoom = remember { TimelineZoom() }
     val liveZoom = zoom.live
     val hour = if (liveZoom != null) timelineHourHeight(liveZoom) else timelineHourHeight(vm.weekTimelineZoom)
@@ -100,21 +88,14 @@ internal fun ContinuousTimeline(
     val hourPx = with(density) { hour.toPx() }
     // Packing follows the saved zoom, frozen while a pinch or its glide runs, so short-event rows and grouped hours
     // stay put until the scale has settled.
-    val minMinutes = ceil(timelineMinimumBlockHeight(maxOf(lineSize, measuredTitle), density) /
-        timelineHourHeight(zoom.frozen ?: vm.weekTimelineZoom) * 60f).toInt()
-    // Midnight sits a little below the all-day band, with its rail label centered on the line.
-    val railLabelPx = remember(railStyle, density) { labelMeasurer.measure("Ag", railStyle, maxLines = 1).size.height }
-    val edgePx = with(density) { (railLabelPx / 2f + 3.dp.toPx()).roundToInt() }
+    val minMinutes = text.minMinutes(zoom.frozen ?: vm.weekTimelineZoom)
+    val edgePx = text.edgePx
     val edge = with(density) { edgePx.toDp() }
     val topPx = edgePx.toFloat()
     val minBlockWidth = timelineMinLaneWidth(titleSize)
-    val compact = remember(f) { CompactTimes(f.locale, f.is24Hour, f::range) }
-    val labels = remember(f, compact) { (0..24).map {
-        if (it == 24 && f.is24Hour) String.format(f.locale, "%02d:%02d", 24, 0)
-        else compact.time(LocalTime.of(it % 24, 0))
-    } }
+    val compact = text.compact
+    val labels = text.hourLabels
     val allDayLabel = stringResource(R.string.all_day)
-    val emptyLabel = stringResource(R.string.timeline_empty_hours)
     val loadingLabel = stringResource(R.string.timeline_loading_day)
     val events = vm.eventsByDay
     var overflowEvents by remember { mutableStateOf(emptyList<CalendarEvent>()) }
@@ -156,28 +137,7 @@ internal fun ContinuousTimeline(
         }.collect { reportDirection(it) }
     }
     var requestedMinute by remember { mutableStateOf<Int?>(null) }
-    var previousAxis by remember(scroll) { mutableStateOf(axis) }
-    var previousTop by remember(scroll) { mutableFloatStateOf(topPx) }
-    var pendingAnchor by remember(scroll) { mutableStateOf<TimelineAnchor?>(null) }
-    SideEffect {
-        if (liveZoom != null) {
-            // The pinch owns the scroll; an older remap must not replay once the scale settles.
-            previousAxis = axis
-            previousTop = topPx
-            pendingAnchor = null
-            zoom.takeHandoff(scroll.value)
-        } else {
-            val settled = zoom.takeHandoff(scroll.value)
-            if (previousAxis.gaps != axis.gaps || previousAxis.hourPx != axis.hourPx || previousTop != topPx) {
-                // Capture before the new grid measures and can clamp the old pixel offset; placement of the new grid
-                // restores it in the same frame (see timelinePosition). A settled pinch keeps the minute under the
-                // fingers, since regrouped hours between the top and the fingers would move it.
-                pendingAnchor = settled ?: pendingAnchor ?: timelineAnchor(previousAxis, previousTop, scroll.value.toFloat())
-                previousAxis = axis
-                previousTop = topPx
-            }
-        }
-    }
+    val remap = rememberTimelineRemap(scroll, axis, topPx, zoom, liveZoom != null)
     val readableHeaderPx = with(density) { 32.dp.toPx() }
     LaunchedEffect(row, vm, readableHeaderPx) {
         snapshotFlow {
@@ -235,8 +195,8 @@ internal fun ContinuousTimeline(
                     else latestAxis.minuteToY(7 * 60)
                 scroll.scrollTo(y.roundToInt())
                 // Navigation has already positioned the latest grid; an older remap must not undo it.
-                pendingAnchor = null
-                previousAxis = latestAxis
+                remap.pendingAnchor = null
+                remap.previousAxis = latestAxis
             }
             firstPosition = false
             withFrameNanos { }
@@ -264,16 +224,16 @@ internal fun ContinuousTimeline(
             (firstPosition && scroll.value == 0) || (pending && vm.selectedDate == today) ->
                 if (vm.selectedDate == today) timelineTodayScroll(axis, todayMinute(), topPx)
                 else axis.minuteToY(7 * 60)
-            pendingAnchor != null -> (requestedMinute?.let { timelineTodayScroll(axis, it, topPx) } ?: pendingAnchor!!.scrollOn(axis, topPx))
-                .also { pendingAnchor = null }
+            remap.pendingAnchor != null -> (requestedMinute?.let { timelineTodayScroll(axis, it, topPx) } ?: remap.pendingAnchor!!.scrollOn(axis, topPx))
+                .also { remap.pendingAnchor = null }
             else -> null
         }
     }
     val latestPlacement = rememberUpdatedState(placementTarget)
     val positioned = remember(scroll) { Modifier.timelinePosition(scroll) { latestPlacement.value() } }
-    BoxWithConstraints(modifier.fillMaxSize().testTag("calendar_continuous_timeline")) {
-        val gutter = rememberTimeGutter(labels + listOf(allDayLabel.substringBeforeLast(' '), allDayLabel.substringAfterLast(' ')), railStyle, 44.dp, maxWidth * 0.30f)
-        val column = continuousColumnWidth(maxWidth - gutter, vm.visibleWeekDays, titleSize, density.fontScale)
+    BoxWithConstraints(modifier.fillMaxSize()) {
+        val gutter = rememberTimeGutter(labels + allDayRailWords(allDayLabel), railStyle, 44.dp, maxWidth * 0.30f)
+        val column = maxOf(88.dp, titleSize * 6.5f, (maxWidth - gutter) / vm.visibleWeekDays)
         val columnPx = with(density) { column.toPx() }
         var oldColumnPx by rememberSaveable { mutableFloatStateOf(columnPx) }
         val pan = rememberSaveable(saver = TimelinePanAnchor.Saver) { TimelinePanAnchor(row.firstVisibleItemIndex) }
@@ -318,50 +278,41 @@ internal fun ContinuousTimeline(
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth().height(headerHeight)) {
                 Spacer(Modifier.width(gutter))
-                ProjectedDays(row, visibleIndices, column, Modifier.weight(1f).fillMaxHeight().testTag("calendar_timeline_headers").then(drag)) { i ->
+                ProjectedDays(row, visibleIndices, column, Modifier.weight(1f).fillMaxHeight().then(drag)) { i ->
                     val day = date(i)
                     TimelineDayHeader(day, day == vm.selectedDate, day == today,
                         if (vm.coversRange(day, day)) events[day].orEmpty().size else 0, f, Modifier.fillMaxSize(),
                         onClick = if (vm.weekHeaderSelection) { { vm.selectTimelineDay(day) } } else null)
                 }
             }
-            // Only real all-day and multi-day banners use this band. It glides open when one comes into view and
-            // closes once none is visible, so the hours below slide instead of jumping. At rest without banners it
-            // takes no room at all.
-            AllDayReveal(hasBanners, motion, rowPlaced) {
-                Column {
-                    HorizontalDivider(color = p.line)
-                    Row(Modifier.fillMaxWidth().heightIn(max = bannerHeight).testTag("calendar_timeline_all_day").verticalScroll(rememberScrollState())) {
-                        Text(allDayLabel.substringBeforeLast(' ') + "\n" + allDayLabel.substringAfterLast(' '), Modifier.width(gutter).padding(end = 6.dp, top = 4.dp), color = p.muted, style = railStyle,
-                            textAlign = if (rtl) androidx.compose.ui.text.style.TextAlign.Left else androidx.compose.ui.text.style.TextAlign.Right,
-                            maxLines = 3, overflow = TextOverflow.Ellipsis)
-                        ProjectedDays(row, visibleIndices, column, Modifier.weight(1f).then(drag), fitTallest = true) { i ->
-                            val day = date(i)
-                            val banners = if (vm.coversRange(day, day)) events[day].orEmpty().filter { it.isTimelineBanner() } else emptyList()
-                            // Every day is as tall as the fullest one and its last banner fills the rest, so a short title
-                            // never leaves an empty strip beside a longer one. A crowded band scrolls as a whole.
-                            Column(Modifier.fillMaxSize().padding(horizontal = 1.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                banners.forEachIndexed { n, event ->
-                                    AllDayChip(event, day, f, false, motion, bannerHeight,
-                                        if (n == banners.lastIndex) Modifier.weight(1f) else Modifier) { onOpen(event) }
-                                }
-                            }
+            if (shortEvents.values.any { it.isNotEmpty() }) {
+                Row(Modifier.fillMaxWidth().height(48.dp)) {
+                    Spacer(Modifier.width(gutter))
+                    ProjectedDays(row, visibleIndices, column, Modifier.weight(1f).fillMaxHeight().then(drag)) { i ->
+                        val list = shortEvents[date(i)].orEmpty()
+                        if (list.isNotEmpty()) TimelineShortEventButton(list.size) { overflowEvents = list }
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth().height(bannerHeight)) {
+                AllDayRailLabel(allDayLabel, gutter, top = 4.dp)
+                ProjectedDays(row, visibleIndices, column, Modifier.weight(1f).fillMaxHeight().then(drag)) { i ->
+                    val day = date(i)
+                    Column(Modifier.fillMaxSize().padding(horizontal = 1.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        if (vm.coversRange(day, day)) events[day].orEmpty().filter { it.isTimelineBanner() }.forEach { event ->
+                            AllDayChip(event, day, f, false, motion, bannerHeight) { onOpen(event) }
                         }
                     }
                 }
             }
             HorizontalDivider(color = p.line)
             Row(
-                Modifier.weight(1f).fillMaxWidth().testTag("calendar_timeline").timelinePinch(
+                Modifier.weight(1f).fillMaxWidth().timelinePinch(
                     zoom, scroll, pinchScope, motion,
-                    saved = { vm.weekTimelineZoom },
-                    // The grid starts [edge] below the top of the scrolling content and ends [edge] above its bottom.
-                    anchorAt = { percent, scrollY, focalY -> timelineAnchor(zoomAxis(percent), topPx, scrollY, focalY) },
-                    scrollFor = { percent, minute, focalY ->
-                        val target = zoomAxis(percent)
-                        focalScroll(target, minute, focalY - topPx, target.totalHeight + topPx * 2, scroll.viewportSize.toFloat())
-                    },
-                    onCommit = vm::changeWeekTimelineZoom,
+                    saved = { vm.weekTimelineZoom }, axisAt = { zoomAxis(it) }, topPx = topPx,
+                    // The grid ends [edge] above the bottom of the scrolling content.
+                    contentHeight = { it.totalHeight + topPx * 2 },
+                    onCommit = { vm.weekTimelineZoom = it },
                 ).then(positioned).verticalScroll(scroll).padding(vertical = edge),
             ) {
                 // Gap labels share the same mapping as the columns, so no event can drift away from its hour.
@@ -381,42 +332,17 @@ internal fun ContinuousTimeline(
                                 DayColumn(day, events[day].orEmpty().filter { !it.isTimelineBanner() }, zone, minMinutes, hour, minBlockWidth,
                                     f, compact, titleStyle, null, motion, Modifier.fillMaxSize(), onOpen, vm::newEvent,
                                     { _, list -> overflowEvents = list }, axis)
-                            } else if (vm.loadError == null) Text(loadingLabel, Modifier.padding(8.dp), color = p.muted, style = railStyle)
-                            if (vm.coversRange(day, day)) axis.gaps.forEach { gap ->
-                                Box(Modifier.offset(y = with(density) { gap.y.toDp() }).fillMaxWidth().height(with(density) { gap.height.toDp() }),
-                                    contentAlignment = androidx.compose.ui.Alignment.Center) {
-                                    Text(emptyLabel, Modifier.padding(4.dp), color = p.muted, style = railStyle,
-                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                }
-                            }
+                            } else Text(loadingLabel, Modifier.padding(8.dp), color = p.muted, style = railStyle)
+                            if (vm.coversRange(day, day)) TimelineGapLabels(axis, Modifier.fillMaxWidth(), PaddingValues(4.dp), maxLines = 2)
+                            if (isToday) NowMarker(column, 0, currentMinute, Modifier.fillMaxSize(), axis, gridColors)
                         }
                     }
                 }
             }
         }
     }
-    if (overflowEvents.isNotEmpty()) {
-        // Details opens with no fade and the chooser stays until the frame that draws it, so the week never shows
-        // between the chooser and the event. A plain dismiss closes at once.
-        val chooserScope = rememberCoroutineScope()
-        val opening = remember { booleanArrayOf(false) }
-        TimelineEventList(overflowEvents, f,
-            onOpen = { event ->
-                if (!opening[0]) {
-                    opening[0] = true
-                    vm.openInstantly(Screen.Details(event))
-                }
-            },
-            onClose = {
-                if (!opening[0]) overflowEvents = emptyList()
-                else chooserScope.launch {
-                    try { withFrameNanos { }; withFrameNanos { } } finally {
-                        opening[0] = false
-                        overflowEvents = emptyList()
-                    }
-                }
-            })
-    }
+    val chooser = rememberChooserHandoff(vm) { overflowEvents = emptyList() }
+    if (overflowEvents.isNotEmpty()) TimelineEventList(overflowEvents, f, onOpen = chooser.open, onClose = chooser.close)
 }
 
 private val AllDayBandSpring = spring(Spring.DampingRatioNoBouncy, Spring.StiffnessMediumLow, visibilityThreshold = 0.5f)

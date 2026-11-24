@@ -17,10 +17,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -46,7 +43,6 @@ import io.github.sunsind.sunlith.system.restoreCalendarHandoff
 import io.github.sunsind.sunlith.system.save
 import io.github.sunsind.sunlith.ui.Screen
 import io.github.sunsind.sunlith.ui.SunlithApp
-import io.github.sunsind.sunlith.ui.SunlithTheme
 import io.github.sunsind.sunlith.ui.SunlithViewModel
 import java.time.Instant
 import java.time.LocalDate
@@ -80,7 +76,7 @@ class MainActivity : ComponentActivity() {
             else pendingHandoff = restored
         }
         setContent {
-            val ready = viewModel.aiIntroDone && viewModel.layoutSetupDone && viewModel.hasPermission && !viewModel.needsNotificationStep && viewModel.loaded
+            val ready = viewModel.linksReady
             LaunchedEffect(ready) { if (ready) viewModel.deliverPendingLink() }
             val editorOpen = Screen.Editor in viewModel.stack
             LaunchedEffect(pendingHandoff, ready, editorOpen, viewModel.importUi != null) {
@@ -108,16 +104,13 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-            SunlithTheme(viewModel.themeMode, viewModel.materialYou) {
-                Column(Modifier.fillMaxSize()) {
-                    Box(Modifier.weight(1f)) { SunlithApp(viewModel) }
-                    if (pendingHandoff != null) {
-                        Surface(color = MaterialTheme.colorScheme.surface) {
-                            Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(stringResource(R.string.handoff_waiting), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                                TextButton(onClick = { pendingHandoff = null }) { Text(stringResource(R.string.action_cancel)) }
-                            }
+            SunlithApp(viewModel) {
+                if (pendingHandoff != null) {
+                    Surface(color = MaterialTheme.colorScheme.surface) {
+                        Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(stringResource(R.string.handoff_waiting), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                            TextButton(onClick = { pendingHandoff = null }) { Text(stringResource(R.string.action_cancel)) }
                         }
                     }
                 }

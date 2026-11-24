@@ -44,7 +44,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -74,7 +73,7 @@ import java.time.ZoneId
 private class DetailsMeta(val draft: EventDraft?, val blockReason: EditBlockReason?)
 
 /** The opened event as the calendar shows it now, with its school projection, or null when its date is not loaded. */
-internal fun liveDetailsEvent(opened: CalendarEvent, loaded: List<CalendarEvent>): CalendarEvent? {
+private fun liveDetailsEvent(opened: CalendarEvent, loaded: List<CalendarEvent>): CalendarEvent? {
     val key = opened.key()
     loaded.firstOrNull { it.key() == key }?.let { return it }
     if (!opened.rrule.isNullOrBlank()) return null
@@ -82,11 +81,11 @@ internal fun liveDetailsEvent(opened: CalendarEvent, loaded: List<CalendarEvent>
 }
 
 /** What can be known about editing before the provider answers. A school projection means the school sync owns it. */
-internal fun knownDetailsBlock(shown: CalendarEvent): EditBlockReason? =
+private fun knownDetailsBlock(shown: CalendarEvent): EditBlockReason? =
     if (shown.school != null) EditBlockReason.SCHOOL_MANAGED else null
 
 /** Notes come from the shown event. The stored draft is only used for an event the calendar has not loaded. */
-internal fun detailsDescription(shown: CalendarEvent, live: Boolean, draftDescription: String?): String =
+private fun detailsDescription(shown: CalendarEvent, live: Boolean, draftDescription: String?): String =
     if (live) shown.description else draftDescription ?: shown.description
 
 @Composable
@@ -124,7 +123,6 @@ fun DetailsScreen(vm: SunlithViewModel, opened: CalendarEvent) {
     // A combined class spans several provider rows; the draft only describes the first one.
     val periods = school?.periods.orEmpty().sortedBy { it.startMillis }.takeIf { it.size > 1 }.orEmpty()
     val absences = school?.absences.orEmpty().sortedBy { it.startMillis }
-    val courseColors = rememberCourseColors(vm.eventsByDay, vm.courseColorSlots)
 
     Scaffold(
         containerColor = p.background,
@@ -139,7 +137,6 @@ fun DetailsScreen(vm: SunlithViewModel, opened: CalendarEvent) {
             }
         },
     ) { pad ->
-        CompositionLocalProvider(LocalCourseColors provides courseColors) {
         Column(Modifier.fillMaxSize().padding(pad).verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 32.dp)) {
             Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.Top) {
                 Box(Modifier.padding(top = 8.dp).size(14.dp).background(eventAccent(event), RoundedCornerShape(4.dp)))
@@ -266,7 +263,6 @@ fun DetailsScreen(vm: SunlithViewModel, opened: CalendarEvent) {
                     SelectionContainer { Text(notes, color = p.ink, style = MaterialTheme.typography.bodyLarge) }
                 }
             }
-        }
         }
     }
 

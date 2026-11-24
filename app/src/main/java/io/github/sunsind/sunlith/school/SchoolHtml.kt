@@ -6,19 +6,15 @@ import java.util.Locale
 
 /** Minimal, non-executing HTML reader. It never loads resources; scripts, styles and embedded content are dropped. */
 internal sealed interface HtmlToken
-internal data class HtmlTag(val name: String, val closing: Boolean, val attributes: Map<String, String> = emptyMap()) : HtmlToken
-internal data class HtmlText(val text: String) : HtmlToken
+private data class HtmlTag(val name: String, val closing: Boolean, val attributes: Map<String, String>) : HtmlToken
+private data class HtmlText(val text: String) : HtmlToken
 
-enum class SchoolSpanKind { BOLD, ITALIC, UNDERLINE, LINK }
-data class SchoolSpan(val start: Int, val end: Int, val kind: SchoolSpanKind, val url: String? = null)
-data class SchoolRichText(val text: String, val spans: List<SchoolSpan> = emptyList())
-
-internal data class HtmlLink(val href: String, val onclick: String, val text: String)
-internal data class HtmlCell(val tokens: List<HtmlToken>, val header: Boolean, val links: List<HtmlLink>) {
-    val text: String get() = SchoolHtml.rich(tokens).text
+internal data class HtmlLink(val href: String, val onclick: String)
+internal data class HtmlCell(val tokens: List<HtmlToken>, val links: List<HtmlLink>) {
+    val text: String get() = SchoolHtml.text(tokens)
 }
 internal data class HtmlTable(val rows: List<List<HtmlCell>>)
-internal data class HtmlForm(val action: String, val method: String, val inputs: List<Map<String, String>>)
+internal data class HtmlForm(val action: String, val inputs: List<Map<String, String>>)
 
 internal object SchoolHtml {
     const val MAX_HTML = 2_000_000
@@ -82,25 +78,14 @@ internal object SchoolHtml {
         return out
     }
 
-    fun rich(html: String): SchoolRichText = rich(tokens(html))
-
-    fun rich(tokens: List<HtmlToken>): SchoolRichText {
+    fun text(tokens: List<HtmlToken>): String {
         val sb = StringBuilder()
-        val spans = ArrayList<SchoolSpan>()
-        val open = ArrayList<Triple<String, Int, String?>>()
         var pre = 0
         fun trailingNewlines(): Int { var n = 0; var k = sb.length - 1; while (k >= 0 && sb[k] == '\n') { n++; k-- }; return n }
         fun lineBreak(count: Int) {
             while (sb.isNotEmpty() && sb.last() == ' ') sb.setLength(sb.length - 1)
             if (sb.isEmpty()) return
             repeat((count - trailingNewlines()).coerceAtLeast(0)) { sb.append('\n') }
-        }
-        fun close(name: String) {
-            val index = open.indexOfLast { it.first == name }
-            if (index < 0) return
-            val (_, start, url) = open.removeAt(index)
-            val kind = when (name) { "b", "strong" -> SchoolSpanKind.BOLD; "i", "em" -> SchoolSpanKind.ITALIC; "u" -> SchoolSpanKind.UNDERLINE; else -> SchoolSpanKind.LINK }
-            if (sb.length > start && (kind != SchoolSpanKind.LINK || url != null)) spans += SchoolSpan(start, sb.length, kind, url)
         }
         tokens.forEach { token ->
             when (token) {
@@ -124,17 +109,10 @@ internal object SchoolHtml {
                     token.name in BLOCK -> lineBreak(1)
                     token.name == "td" || token.name == "th" -> if (!token.closing && sb.isNotEmpty() && sb.last() != '\n' && sb.last() != ' ') sb.append("  ")
                     token.name == "img" -> token.attributes["alt"]?.trim()?.takeIf { it.isNotEmpty() }?.let { sb.append("[").append(it.take(200)).append("]") }
-                    token.name in setOf("b", "strong", "i", "em", "u", "a") -> {
-                        if (token.closing) close(token.name)
-                        else open += Triple(token.name, sb.length, if (token.name == "a") safeLink(token.attributes["href"]) else null)
-                    }
                 }
             }
         }
-        while (open.isNotEmpty()) close(open.last().first)
-        while (sb.isNotEmpty() && sb.last().isWhitespace()) sb.setLength(sb.length - 1)
-        val text = sb.toString()
-        return SchoolRichText(text, spans.mapNotNull { s -> if (s.start >= text.length) null else s.copy(end = s.end.coerceAtMost(text.length)) })
+        return sb.toString().trimEnd()
     }
 
     /** Only absolute web or mail links survive; javascript:, data:, relative and other schemes become plain text. */
@@ -156,13 +134,10 @@ internal object SchoolHtml {
             val rows = ArrayList<List<HtmlCell>>()
             var row: ArrayList<HtmlCell>? = null
             var cell: ArrayList<HtmlToken>? = null
-            var header = false
             val links = ArrayList<HtmlLink>()
-            var link: Triple<String, String, StringBuilder>? = null
             fun closeCell() {
                 val tokens = cell ?: return
-                link?.let { links += HtmlLink(it.first, it.second, it.third.toString().trim()) }; link = null
-                (row ?: ArrayList<HtmlCell>().also { row = it }).add(HtmlCell(tokens.toList(), header, links.toList()))
+                (row ?: ArrayList<HtmlCell>().also { row = it }).add(HtmlCell(tokens.toList(), links.toList()))
                 cell = null; links.clear()
             }
             fun closeRow() { closeCell(); row?.let { if (it.isNotEmpty()) rows += it.toList() }; row = null }
@@ -178,20 +153,12 @@ internal object SchoolHtml {
                 "tr" -> if (top != null) { top.closeRow(); if (!token.closing) top.row = ArrayList(); return@forEach }
                 "td", "th" -> if (top != null) {
                     top.closeCell()
-                    if (!token.closing) { if (top.row == null) top.row = ArrayList(); top.cell = ArrayList(); top.header = token.name == "th" }
+                    if (!token.closing) { if (top.row == null) top.row = ArrayList(); top.cell = ArrayList() }
                     return@forEach
                 }
-                "a" -> if (top?.cell != null) {
-                    if (!token.closing) {
-                        top.link?.let { top.links += HtmlLink(it.first, it.second, it.third.toString().trim()) }
-                        top.link = Triple(token.attributes["href"].orEmpty(), token.attributes["onclick"].orEmpty(), StringBuilder())
-                    } else { top.link?.let { top.links += HtmlLink(it.first, it.second, it.third.toString().trim()) }; top.link = null }
-                }
+                "a" -> if (top?.cell != null && !token.closing) top.links += HtmlLink(token.attributes["href"].orEmpty(), token.attributes["onclick"].orEmpty())
             }
-            if (top?.cell != null) {
-                top.cell!!.add(token)
-                if (token is HtmlText) top.link?.third?.append(token.text)
-            }
+            top?.cell?.add(token)
         }
         while (stack.isNotEmpty()) { val b = stack.removeAt(stack.lastIndex); b.closeRow(); done += HtmlTable(b.rows) }
         return done
@@ -199,19 +166,19 @@ internal object SchoolHtml {
 
     fun forms(tokens: List<HtmlToken>): List<HtmlForm> {
         val forms = ArrayList<HtmlForm>()
-        var current: Triple<String, String, ArrayList<Map<String, String>>>? = null
+        var current: Pair<String, ArrayList<Map<String, String>>>? = null
         tokens.forEach { token ->
             if (token !is HtmlTag) return@forEach
             when {
                 token.name == "form" && !token.closing -> {
-                    current?.let { forms += HtmlForm(it.first, it.second, it.third) }
-                    current = Triple(token.attributes["action"].orEmpty(), token.attributes["method"].orEmpty().lowercase(Locale.ROOT), ArrayList())
+                    current?.let { forms += HtmlForm(it.first, it.second) }
+                    current = token.attributes["action"].orEmpty() to ArrayList()
                 }
-                token.name == "form" -> { current?.let { forms += HtmlForm(it.first, it.second, it.third) }; current = null }
-                (token.name == "input" || token.name == "button") && !token.closing -> current?.third?.add(token.attributes + ("tag" to token.name))
+                token.name == "form" -> { current?.let { forms += HtmlForm(it.first, it.second) }; current = null }
+                (token.name == "input" || token.name == "button") && !token.closing -> current?.second?.add(token.attributes + ("tag" to token.name))
             }
         }
-        current?.let { forms += HtmlForm(it.first, it.second, it.third) }
+        current?.let { forms += HtmlForm(it.first, it.second) }
         return forms
     }
 

@@ -7,11 +7,9 @@ import { isAbsolute, relative, resolve, sep, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isIP } from 'node:net';
 import { z } from 'zod';
-import { deviceSchemas } from './device-validation.js';
 
-export const REQUEST_LIMIT = 512 * 1024;
-export const RESPONSE_LIMIT = 2 * 1024 * 1024;
-export const TIMEOUT_MS = 10_000;
+const REQUEST_LIMIT = 512 * 1024;
+const RESPONSE_LIMIT = 2 * 1024 * 1024;
 const repo = fileURLToPath(new URL('../../../', import.meta.url));
 const configSchema = z.object({
   version: z.literal(1), baseUrl: z.string().max(100),
@@ -30,12 +28,6 @@ const messages = {
   503: 'Sunlith is temporarily unavailable. Open the phone app and try again.'
 };
 const codeMessages = {
-  INVALID_REQUEST: messages[400], BAD_REQUEST: messages[400], VALIDATION_ERROR: messages[400],
-  UNAUTHORIZED: messages[401], FORBIDDEN: messages[403], READ_ONLY: messages[403], CALENDAR_NOT_ALLOWED: messages[403],
-  NOT_FOUND: messages[404], CONFLICT: messages[409], STALE_ETAG: 'The event changed. Read its latest etag before trying again.',
-  SERIES_SCOPE_REQUIRED: 'This is a repeating event. Confirm the whole series and use seriesScope:"series".',
-  RECURRENCE_EXCEPTION: 'This series has exceptions. Sunlith cannot safely change it through this tool.',
-  TOO_LARGE: messages[413], PAYLOAD_TOO_LARGE: messages[413], UNAVAILABLE: messages[503],
   bad_request: messages[400], unauthorized: messages[401], calendar_not_allowed: messages[403], not_found: messages[404],
   revision_mismatch: 'The event changed. Read its latest etag before trying again.',
   operation_conflict: 'This operationId was already used with different details. Reuse the original details or choose a new operationId for a new event.',
@@ -44,17 +36,17 @@ const codeMessages = {
 };
 const blockedReasons = {
   school_managed: 'This event is updated by the school portal. Disconnect the school schedule on the phone before editing it.',
-  series_scope_required: codeMessages.SERIES_SCOPE_REQUIRED,
-  recurrence_exception: codeMessages.RECURRENCE_EXCEPTION,
+  series_scope_required: 'This is a repeating event. Confirm the whole series and use seriesScope:"series".',
+  recurrence_exception: 'This series has exceptions. Sunlith cannot safely change it through this tool.',
   guests: 'This event has guests. Sunlith cannot safely change meetings with invitations through this tool.',
-  read_only: messages[403], invalid_provider_data: 'This event has invalid stored calendar data. Review it on the phone before editing.'
+  invalid_provider_data: 'This event has invalid stored calendar data. Review it on the phone before editing.'
 };
 
 function outsideRepository(path, root) {
   const part = relative(root, path);
   return part !== '' && (part === '..' || part.startsWith(`..${sep}`) || isAbsolute(part));
 }
-export function validateDeviceUrl(value) {
+function validateDeviceUrl(value) {
   let url;
   try { url = new URL(value); } catch { throw new Error('Device URL must be HTTPS with a private IPv4 address.'); }
   const host = url.hostname;
@@ -92,21 +84,14 @@ export async function loadDeviceConfig(path) {
   return parsed;
 }
 
-export async function callDevice(config, tool, input = {}, { timeoutMs } = {}) {
-  const checked = configSchema.safeParse(config);
-  if (!checked.success) throw new Error('Invalid device configuration. Pair the phone again.');
-  const url = validateDeviceUrl(config.baseUrl);
-  const schema = Object.hasOwn(deviceSchemas, tool) ? deviceSchemas[tool] : null;
-  if (!schema) throw new Error('Unknown Sunlith device tool.');
-  const parsed = schema.safeParse(input);
-  if (!parsed.success) throw new Error('Invalid Sunlith device tool arguments.');
-  let args = parsed.data;
+export async function callDevice(config, tool, args) {
+  const url = new URL(config.baseUrl);
   if (tool === 'import_calendar_file') {
     if (extname(args.filePath).toLowerCase() !== '.ics') throw new Error('Choose an ICS file.');
     args = { calendarId: args.calendarId, ics: await privateFile(args.filePath, 256 * 1024, 'Calendar file'), confirm: true };
     tool = 'import_calendar';
   }
-  timeoutMs ??= tool === 'import_calendar' ? 180_000 : TIMEOUT_MS;
+  const timeoutMs = tool === 'import_calendar' ? 180_000 : 10_000;
   const body = Buffer.from(JSON.stringify({ tool, arguments: args }), 'utf8');
   if (body.length > REQUEST_LIMIT) throw new Error(messages[413]);
   const expectedPin = Buffer.from(config.certificateSha256, 'hex');

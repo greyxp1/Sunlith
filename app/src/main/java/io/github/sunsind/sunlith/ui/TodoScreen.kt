@@ -38,12 +38,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.sunsind.sunlith.R
@@ -70,7 +68,6 @@ fun TodoScreen(vm: SunlithViewModel) {
     BackHandler { vm.back() }
 
     Scaffold(
-        modifier = Modifier.semantics { testTagsAsResourceId = true },
         containerColor = p.background,
         topBar = {
             ScreenTopBar(stringResource(R.string.todo_title), onNavigate = vm::back) {
@@ -84,7 +81,7 @@ fun TodoScreen(vm: SunlithViewModel) {
         // last items while it refreshes, and only an empty first load shows a small spinner in the list.
         Column(Modifier.fillMaxSize().padding(pad)) {
             LazyColumn(
-                Modifier.fillMaxSize().testTag("todo_list"),
+                Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -138,7 +135,7 @@ internal fun ListLoading() {
     }
 }
 
-internal const val LIST_LOADING_VISIBLE_AFTER_MS = 400L
+private const val LIST_LOADING_VISIBLE_AFTER_MS = 400L
 
 @Composable
 private fun TodoRow(item: TodoItem, done: Boolean, f: Formats, zone: ZoneId, onComplete: () -> Unit, onOpen: () -> Unit) {
@@ -149,7 +146,7 @@ private fun TodoRow(item: TodoItem, done: Boolean, f: Formats, zone: ZoneId, onC
     val day = event.span(zone).first
     val context = LocalContext.current
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(colors.container).testTag("todo_${item.key}"),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(colors.container),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Checkbox(checked = done, onCheckedChange = { onComplete() },

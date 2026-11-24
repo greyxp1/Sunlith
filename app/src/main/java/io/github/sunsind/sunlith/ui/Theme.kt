@@ -1,6 +1,10 @@
 package io.github.sunsind.sunlith.ui
 
 import android.os.Build
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.compose.LocalActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LocalContentColor
@@ -11,6 +15,7 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
@@ -168,4 +173,17 @@ fun eventTint(argb: Int, palette: SunlithPalette): Color {
     hsv[1] = hsv[1] * 0.55f
     hsv[2] = if (palette.dark) hsv[2].coerceIn(0.55f, 0.80f) else hsv[2].coerceIn(0.40f, 0.68f)
     return Color(android.graphics.Color.HSVToColor(hsv))
+}
+
+/** Edge-to-edge system bars whose icons follow the palette. */
+@Composable
+fun SystemBarsForPalette() {
+    val dark = LocalPalette.current.dark
+    val activity = LocalActivity.current as? ComponentActivity
+    DisposableEffect(dark, activity) {
+        val style = if (dark) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+        activity?.enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+        onDispose { }
+    }
 }

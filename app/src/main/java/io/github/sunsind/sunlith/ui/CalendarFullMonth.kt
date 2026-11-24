@@ -29,7 +29,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -51,7 +50,7 @@ import java.time.LocalDate
 import java.time.YearMonth
 import kotlin.math.floor
 
-internal fun fullMonthChipSlots(row: Dp, number: Dp, chip: Dp, density: Density): Int = with(density) {
+private fun fullMonthChipSlots(row: Dp, number: Dp, chip: Dp, density: Density): Int = with(density) {
     // Keep the fractional chip stride; allow half a pixel for rounding in the available space.
     floor(((row - number - 10.dp).toPx() + 0.5f) / chip.toPx().coerceAtLeast(1f)).toInt().coerceAtLeast(0)
 }
@@ -75,9 +74,9 @@ internal fun FullMonthGrid(
     val density = LocalDensity.current
     val start = remember(month, mondayFirst) { gridStart(month, mondayFirst) }
     val dates = remember(start) { List(42) { start.plusDays(it.toLong()) } }
-    val monthDirection = horizontalTodayDirection(today, month.atDay(1), month.atEndOfMonth())
-    Column(modifier.fillMaxSize().padding(horizontal = 2.dp).testTag("calendar_full_month")) {
-        Box(Modifier.weight(1f).fillMaxWidth().testTag("calendar_grid")) {
+    val monthDirection = todayDirection(today, month.atDay(1), month.atEndOfMonth(), horizontal = true)
+    Column(modifier.fillMaxSize().padding(horizontal = 2.dp)) {
+        Box(Modifier.weight(1f).fillMaxWidth()) {
             val scrolls = row * 6 > viewportHeight
             key(month) {
                 val scroll = rememberScrollState()

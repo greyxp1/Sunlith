@@ -39,9 +39,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.clipRect
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -81,7 +78,7 @@ private val COURSE_LIGHT = longArrayOf(
 private val COURSE_DARK = longArrayOf(
     0xFF8EC5FF, 0xFF9BD7A0, 0xFFD7A6E8, 0xFFFFB870, 0xFFF4A3A3, 0xFF7FD3C8, 0xFFAEB8F5, 0xFFF7A6C8, 0xFFD2BBAE, 0xFFCFD97A,
 )
-internal const val COURSE_SLOTS = 10
+private const val COURSE_SLOTS = 10
 private val COURSE_INK_DARK = Color(0xFF121212)
 
 internal fun courseColors(slot: Int, dark: Boolean): EventColors {
@@ -89,13 +86,13 @@ internal fun courseColors(slot: Int, dark: Boolean): EventColors {
     return if (dark) EventColors(Color(COURSE_DARK[index]), COURSE_INK_DARK) else EventColors(Color(COURSE_LIGHT[index]), Color.White)
 }
 
-internal fun preferredCourseSlot(key: String): Int = Math.floorMod(key.hashCode(), COURSE_SLOTS)
+private fun preferredCourseSlot(key: String): Int = Math.floorMod(key.hashCode(), COURSE_SLOTS)
 
 /**
  * Keeps saved course slots and assigns new courses the next free slot while the palette has room.
  * New keys are sorted so event order cannot affect their initial assignment.
  */
-internal fun assignCourseSlots(keys: Collection<String>, previous: Map<String, Int> = emptyMap()): Map<String, Int> {
+internal fun assignCourseSlots(keys: Collection<String>, previous: Map<String, Int>): Map<String, Int> {
     val result = previous.filterValues { it in 0 until COURSE_SLOTS }.toMutableMap()
     val active = keys.filter { it.isNotBlank() }.toSet()
     val counts = IntArray(COURSE_SLOTS)
@@ -121,7 +118,7 @@ internal class CourseColors(private val slots: Map<String, Int>) {
 
 internal val LocalCourseColors = staticCompositionLocalOf { CourseColors.Empty }
 
-internal fun CalendarEvent.courseKeyOrNull(): String? = school?.courseKey?.takeIf { it.isNotBlank() }
+private fun CalendarEvent.courseKeyOrNull(): String? = school?.course?.takeIf { it.isNotBlank() }
 
 @Composable
 internal fun rememberCourseColors(eventsByDay: Map<LocalDate, List<CalendarEvent>>, saved: Map<String, Int> = emptyMap()): CourseColors {
@@ -137,7 +134,7 @@ internal fun rememberCourseColors(eventsByDay: Map<LocalDate, List<CalendarEvent
  * Only the school's own status marks a card; its color or title never does.
  */
 internal fun eventColors(event: CalendarEvent, palette: SunlithPalette, courses: CourseColors, dimmed: Boolean = false): EventColors {
-    if (dimmed) return eventColors(event.color, palette, dimmed = true)
+    if (dimmed) return EventColors(palette.raised, palette.muted)
     val base = event.courseKeyOrNull()?.let { courseColors(courses.slot(it), palette.dark) }
         ?: courseColors(preferredCourseSlot("event:${event.title.trim().lowercase(Locale.ROOT)}"), palette.dark)
     return if (event.wholeCardHatched()) base.copy(hatch = hatchColor(base.content)) else base
@@ -190,8 +187,8 @@ internal fun Modifier.eventHatch(event: CalendarEvent, color: Color, horizontal:
 
 @Composable
 @ReadOnlyComposable
-internal fun eventColors(event: CalendarEvent, dimmed: Boolean = false): EventColors =
-    eventColors(event, LocalPalette.current, LocalCourseColors.current, dimmed)
+internal fun eventColors(event: CalendarEvent): EventColors =
+    eventColors(event, LocalPalette.current, LocalCourseColors.current)
 
 /** A small marker color (dots, swatches) that matches the event's block color. */
 @Composable
@@ -242,7 +239,7 @@ private val ROOM_PREFIX = Regex("([A-Za-z]{2,5})-(.+)")
  * of being split across lines. The separators are kept as they are. Scripts written without spaces between words are
  * returned unchanged, since they wrap between characters normally.
  */
-internal fun fitWords(text: String, width: Int, locale: Locale = Locale.ROOT, measure: (String) -> Int): String {
+internal fun fitWords(text: String, width: Int, locale: Locale, measure: (String) -> Int): String {
     if (text.codePoints().anyMatch { it.toUnspacedScript() }) return text
     val lines = BreakIterator.getLineInstance(locale).apply { setText(text) }
     val out = StringBuilder(text.length + 4)
@@ -280,34 +277,6 @@ private fun Int.toUnspacedScript(): Boolean = when (Character.UnicodeScript.of(t
     Character.UnicodeScript.THAI, Character.UnicodeScript.LAO, Character.UnicodeScript.KHMER,
     Character.UnicodeScript.MYANMAR, Character.UnicodeScript.TIBETAN -> true
     else -> false
-}
-
-/**
- * A solid fill for an event, made from its calendar color so the same event always gets the same fill. Dark themes
- * get a soft pastel and light themes a mid tone; the text is pure black or white, whichever contrasts more, which
- * always gives at least 4.5:1. Events without a color, and [dimmed] ones (dates outside the shown month), use the
- * neutral raised surface instead.
- */
-internal fun eventColors(argb: Int, palette: SunlithPalette, dimmed: Boolean = false): EventColors {
-    if (dimmed) return EventColors(palette.raised, palette.muted)
-    if (argb == 0) return EventColors(palette.raised, palette.ink)
-    val hsv = FloatArray(3)
-    android.graphics.Color.colorToHSV(argb or 0xFF000000.toInt(), hsv)
-    if (palette.dark) {
-        hsv[1] = (hsv[1] * 0.55f).coerceAtMost(0.5f)
-        hsv[2] = hsv[2].coerceIn(0.72f, 0.86f)
-    } else {
-        hsv[1] = (hsv[1] * 0.75f).coerceAtMost(0.7f)
-        hsv[2] = hsv[2].coerceIn(0.50f, 0.66f)
-    }
-    val fill = Color(android.graphics.Color.HSVToColor(hsv))
-    return EventColors(fill, readableOn(fill))
-}
-
-/** Black or white, whichever has the higher contrast ratio on [fill]. */
-internal fun readableOn(fill: Color): Color {
-    val l = fill.luminance()
-    return if (1.05f / (l + 0.05f) >= (l + 0.05f) / 0.05f) Color.White else Color.Black
 }
 
 /** A ring that fades in while [active] is true. Used to point out the event a date opened on. */
@@ -363,7 +332,7 @@ internal class CompactTimes(locale: Locale, is24Hour: Boolean, private val join:
  * Explicit date opens consume their request before moving, so recreation cannot replay a scroll in progress.
  */
 @Stable
-internal class TimelineFocus(val date: LocalDate, val request: Int = 0, private val onStart: () -> Unit = {}) {
+internal class TimelineFocus(val date: LocalDate, val request: Int, private val onStart: () -> Unit) {
     fun start() = onStart()
 }
 

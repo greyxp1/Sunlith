@@ -22,12 +22,9 @@ import javax.net.ssl.SSLSocket
  * One HTTPS request per connection: POST /v1/tools with Content-Length, then Connection: close.
  * Binds 0.0.0.0 but admits only connections that arrived on Wi-Fi, Ethernet, VPN or loopback addresses from private IPv4 peers.
  */
-internal class DeviceLinkServer(
-    context: Context,
-    private val port: Int = DeviceLink.PORT,
-    private val tools: DeviceLinkTools = DeviceLinkTools(context),
-    private val limiter: DeviceLinkRateLimiter = DeviceLinkRateLimiter(),
-) {
+internal class DeviceLinkServer(context: Context) {
+    private val tools = DeviceLinkTools(context)
+    private val limiter = DeviceLinkRateLimiter()
     private val app = context.applicationContext
     private val workers = ThreadPoolExecutor(4, 4, 30, TimeUnit.SECONDS, ArrayBlockingQueue(8), threads("worker"))
         .apply { allowCoreThreadTimeOut(true) }
@@ -35,11 +32,10 @@ internal class DeviceLinkServer(
     @Volatile private var serverSocket: SSLServerSocket? = null
     private val clients = ConcurrentHashMap.newKeySet<SSLSocket>()
 
-    val localPort: Int get() = serverSocket?.localPort ?: -1
 
     fun start() {
         val socket = DeviceLinkTls.sslContext().serverSocketFactory
-            .createServerSocket(port, 16, Inet4Address.getByAddress(byteArrayOf(0, 0, 0, 0))) as SSLServerSocket
+            .createServerSocket(DeviceLink.PORT, 16, Inet4Address.getByAddress(byteArrayOf(0, 0, 0, 0))) as SSLServerSocket
         try {
             socket.enabledProtocols = DeviceLinkTls.protocols(socket.supportedProtocols)
             socket.needClientAuth = false
@@ -199,16 +195,16 @@ internal class DeviceLinkServer(
  * Per-peer limits. Repeated unauthenticated failures block only that peer address for a while, so an attacker
  * elsewhere on the network cannot lock out or revoke the paired computer.
  */
-internal class DeviceLinkRateLimiter(private val clock: () -> Long = { System.nanoTime() / 1_000_000 }) {
+private class DeviceLinkRateLimiter {
     private class Entry(var failureWindow: Long, var failures: Int = 0, var blockedUntil: Long = 0, var requestWindow: Long = 0, var requests: Int = 0)
     private val entries = LinkedHashMap<String, Entry>(16, 0.75f, true)
 
     @Synchronized
-    fun admitted(peer: String): Boolean = entries[peer]?.let { clock() >= it.blockedUntil } ?: true
+    fun admitted(peer: String): Boolean = entries[peer]?.let { now() >= it.blockedUntil } ?: true
 
     @Synchronized
     fun failure(peer: String) {
-        val now = clock()
+        val now = now()
         val entry = entry(peer, now)
         if (now - entry.failureWindow >= FAILURE_WINDOW_MS) {
             entry.failureWindow = now
@@ -224,7 +220,7 @@ internal class DeviceLinkRateLimiter(private val clock: () -> Long = { System.na
 
     @Synchronized
     fun request(peer: String): Boolean {
-        val now = clock()
+        val now = now()
         val entry = entry(peer, now)
         entry.failures = 0
         if (now - entry.requestWindow >= REQUEST_WINDOW_MS) {
@@ -234,6 +230,8 @@ internal class DeviceLinkRateLimiter(private val clock: () -> Long = { System.na
         entry.requests++
         return entry.requests <= MAX_REQUESTS
     }
+
+    private fun now() = System.nanoTime() / 1_000_000
 
     private fun entry(peer: String, now: Long): Entry {
         entries[peer]?.let { return it }
@@ -245,11 +243,11 @@ internal class DeviceLinkRateLimiter(private val clock: () -> Long = { System.na
     }
 
     companion object {
-        const val MAX_FAILURES = 20
-        const val FAILURE_WINDOW_MS = 5 * 60_000L
-        const val BLOCK_MS = 5 * 60_000L
-        const val MAX_REQUESTS = 240
-        const val REQUEST_WINDOW_MS = 60_000L
-        const val MAX_PEERS = 512
+        private const val MAX_FAILURES = 20
+        private const val FAILURE_WINDOW_MS = 5 * 60_000L
+        private const val BLOCK_MS = 5 * 60_000L
+        private const val MAX_REQUESTS = 240
+        private const val REQUEST_WINDOW_MS = 60_000L
+        private const val MAX_PEERS = 512
     }
 }

@@ -7,6 +7,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
 import android.database.Cursor
+import android.net.Uri
 import android.os.Looper
 import android.provider.CalendarContract
 import android.provider.CalendarContract.Calendars
@@ -55,24 +56,34 @@ class CalendarRepository(context: Context) {
         require(endMillis > startMillis) { "Choose a valid date range." }
         require(endMillis - startMillis <= 366L * 24 * 60 * 60 * 1000 * 3) { "Load at most three years at a time." }
         if (calendarIds.isEmpty()) return emptyList()
+        val ids = calendarIds.toList()
+        val withAlarms = mutableSetOf<Long>()
+        val rows = instances(startMillis, endMillis, ids, "", (ids.map(Long::toString) + Events.STATUS_CANCELED.toString()).toTypedArray(),
+            "${Instances.BEGIN} ASC, ${Instances.END} ASC, ${Instances.TITLE} COLLATE NOCASE ASC", withAlarms)
+        val events = if (!reminders) rows else {
+            val minutes = alertReminders(withAlarms)
+            rows.map { it.copy(reminderMinutes = minutes[it.id].orEmpty()) }
+        }
+        return if (school) SchoolCalendarPresentation.annotate(context, events) else events
+    }
+
+    /** Uncancelled occurrences in [ids]; [extra] adds selection after the calendar and status filters, whose arguments lead [args]. Rows with alerts are added to [withAlarms]. */
+    private fun instances(startMillis: Long, endMillis: Long, ids: List<Long>, extra: String, args: Array<String>, order: String, withAlarms: MutableSet<Long>? = null): List<CalendarEvent> {
         val uri = Instances.CONTENT_URI.buildUpon().also {
             ContentUris.appendId(it, startMillis)
             ContentUris.appendId(it, endMillis)
         }.build()
-        val ids = calendarIds.toList()
-        val withAlarms = mutableSetOf<Long>()
-        val rows = resolver.query(uri,
+        return resolver.query(uri,
             arrayOf(Instances.EVENT_ID, Instances.CALENDAR_ID, Instances.TITLE, Instances.DESCRIPTION,
                 Instances.EVENT_LOCATION, Instances.BEGIN, Instances.END, Instances.ALL_DAY,
                 Instances.EVENT_TIMEZONE, Instances.RRULE, Instances.DISPLAY_COLOR, Instances.CALENDAR_DISPLAY_NAME, Instances.HAS_ALARM),
-            "${Instances.CALENDAR_ID} IN (${ids.joinToString(",") { "?" }}) AND (${Instances.STATUS} IS NULL OR ${Instances.STATUS} != ?)",
-            (ids.map(Long::toString) + Events.STATUS_CANCELED.toString()).toTypedArray(),
-            "${Instances.BEGIN} ASC, ${Instances.END} ASC, ${Instances.TITLE} COLLATE NOCASE ASC",
+            "${Instances.CALENDAR_ID} IN (${ids.joinToString(",") { "?" }}) AND (${Instances.STATUS} IS NULL OR ${Instances.STATUS} != ?)$extra",
+            args, order,
         )?.use { cursor ->
             buildList {
                 while (cursor.moveToNext()) {
                     val id = cursor.long(Instances.EVENT_ID)
-                    if (cursor.int(Instances.HAS_ALARM) != 0) withAlarms += id
+                    if (withAlarms != null && cursor.int(Instances.HAS_ALARM) != 0) withAlarms += id
                     add(CalendarEvent(
                         id, cursor.long(Instances.CALENDAR_ID),
                         cursor.string(Instances.TITLE), cursor.string(Instances.DESCRIPTION),
@@ -83,11 +94,6 @@ class CalendarRepository(context: Context) {
                 }
             }
         } ?: emptyList()
-        val events = if (!reminders) rows else {
-            val minutes = alertReminders(withAlarms)
-            rows.map { it.copy(reminderMinutes = minutes[it.id].orEmpty()) }
-        }
-        return if (school) SchoolCalendarPresentation.annotate(context, events) else events
     }
 
     /** Alert reminder minutes per event, read in batches so a large range costs a few queries, not one per event. */
@@ -125,7 +131,7 @@ class CalendarRepository(context: Context) {
         if (description == updated) return
         require(updated.length <= 100_000) { "The event details are too long." }
         resolver.applyBatch(CalendarContract.AUTHORITY, arrayListOf(
-            revisionAssert(id, expected),
+            assertRow(Events.CONTENT_URI, id, expected),
             ContentProviderOperation.newUpdate(ContentUris.withAppendedId(Events.CONTENT_URI, id))
                 .withValue(Events.DESCRIPTION, updated).withExpectedCount(1).build(),
         ))
@@ -136,7 +142,9 @@ class CalendarRepository(context: Context) {
      * Single events have no history cutoff. Repeating occurrences cover the last 366 days and the
      * next 366 days, keeping expansion bounded. Future items let the UI schedule its next refresh.
      */
-    fun todoEvents(calendarIds: Set<Long>, now: Long, zone: ZoneId = ZoneId.systemDefault()): List<TodoItem> {
+    fun todoEvents(calendarIds: Set<Long>): List<TodoItem> {
+        val now = System.currentTimeMillis()
+        val zone = ZoneId.systemDefault()
         checkRead()
         if (calendarIds.isEmpty()) return emptyList()
         val ids = calendarIds.toList()
@@ -163,30 +171,8 @@ class CalendarRepository(context: Context) {
         }
         if (tagged.none { it.isRecurring() }) return singles.sortedBy { it.availableAt }
         val span = 366L * 24 * 60 * 60 * 1000
-        val uri = Instances.CONTENT_URI.buildUpon().also {
-            ContentUris.appendId(it, now - span)
-            ContentUris.appendId(it, now + span)
-        }.build()
-        val occurrences = resolver.query(uri,
-            arrayOf(Instances.EVENT_ID, Instances.CALENDAR_ID, Instances.TITLE, Instances.DESCRIPTION,
-                Instances.EVENT_LOCATION, Instances.BEGIN, Instances.END, Instances.ALL_DAY,
-                Instances.EVENT_TIMEZONE, Instances.RRULE, Instances.DISPLAY_COLOR, Instances.CALENDAR_DISPLAY_NAME),
-            "${Instances.CALENDAR_ID} IN (${ids.joinToString(",") { "?" }}) AND " +
-                "(${Instances.STATUS} IS NULL OR ${Instances.STATUS} != ?) AND ${Instances.DESCRIPTION} LIKE ?",
-            args, "${Instances.BEGIN} ASC",
-        )?.use { cursor ->
-            buildList {
-                while (cursor.moveToNext()) {
-                    val description = cursor.string(Instances.DESCRIPTION)
-                    if (TodoMarker.has(description)) add(CalendarEvent(
-                        cursor.long(Instances.EVENT_ID), cursor.long(Instances.CALENDAR_ID), cursor.string(Instances.TITLE), description,
-                        cursor.string(Instances.EVENT_LOCATION), cursor.long(Instances.BEGIN), cursor.long(Instances.END),
-                        cursor.int(Instances.ALL_DAY) != 0, cursor.string(Instances.EVENT_TIMEZONE).ifBlank { TimeZone.getDefault().id },
-                        cursor.optional(Instances.RRULE), cursor.int(Instances.DISPLAY_COLOR), cursor.string(Instances.CALENDAR_DISPLAY_NAME),
-                    ))
-                }
-            }
-        }.orEmpty()
+        val occurrences = instances(now - span, now + span, ids, " AND ${Instances.DESCRIPTION} LIKE ?", args, "${Instances.BEGIN} ASC")
+            .filter { TodoMarker.has(it.description) }
         val recurringIds = tagged.filter { it.isRecurring() }.mapNotNull { it.draft.id }.toSet()
         val taggedById = tagged.associateBy { it.draft.id }
         val repeating = occurrences.groupBy { it.calendarId }.flatMap { (calendarId, events) ->
@@ -208,16 +194,41 @@ class CalendarRepository(context: Context) {
 
     fun editBlockReason(id: Long): EditBlockReason? {
         checkRead()
-        val stored = readStored(id) ?: return EditBlockReason.MISSING
+        return blockReason(id, readStored(id), checkData = true)
+    }
+
+    private fun blockReason(id: Long, stored: StoredEvent?, checkData: Boolean): EditBlockReason? {
+        if (stored == null) return EditBlockReason.MISSING
         val current = revision(id) ?: return EditBlockReason.MISSING
         if (SchoolOwnership.isManaged(context, id, current)) return EditBlockReason.SCHOOL_MANAGED
         if (calendars().none { it.id == stored.draft.calendarId && it.writable }) return EditBlockReason.READ_ONLY
-        if (stored.invalidReason != null) return EditBlockReason.INVALID_PROVIDER_DATA
+        if (checkData && stored.invalidReason != null) return EditBlockReason.INVALID_PROVIDER_DATA
         if (hasAttendees(id)) return EditBlockReason.GUESTS
-        if (stored.originalId != null || stored.originalSyncId != null || stored.originalInstanceTime != null || !stored.exdate.isNullOrBlank() ||
+        if (stored.isOccurrence() || !stored.exdate.isNullOrBlank() ||
             !stored.rdate.isNullOrBlank() || !stored.exrule.isNullOrBlank() || hasExceptions(id)) return EditBlockReason.RECURRENCE_EXCEPTION
         return null
     }
+
+    /** Throws the save or delete message for [editBlockReason]. Deleting does not need readable provider timing. */
+    private fun requireChangeable(id: Long, stored: StoredEvent, delete: Boolean) {
+        when (blockReason(id, stored, checkData = !delete)) {
+            null -> Unit
+            EditBlockReason.MISSING -> error("This event no longer exists.")
+            EditBlockReason.SCHOOL_MANAGED -> throw IllegalArgumentException(context.getString(R.string.school_sync_managed_event))
+            EditBlockReason.READ_ONLY -> writableCalendar(stored.draft.calendarId)
+            EditBlockReason.INVALID_PROVIDER_DATA -> throw IllegalArgumentException(stored.invalidReason.orEmpty())
+            EditBlockReason.GUESTS -> throw IllegalArgumentException(if (delete) "Delete meetings with guests in your existing calendar app so you can review cancellation messages."
+                else "Edit meetings with guests in your existing calendar app so you can review invitation updates.")
+            EditBlockReason.RECURRENCE_EXCEPTION -> throw IllegalArgumentException(when {
+                stored.isOccurrence() && delete -> "Delete this occurrence in your existing calendar app to preserve the repeating series."
+                stored.isOccurrence() -> "Editing a single occurrence is not supported yet. Open the series in your existing calendar app."
+                delete -> "This series has exceptions. Delete it in your existing calendar app to preserve them."
+                else -> "This series has exceptions. Edit it in your existing calendar app to preserve them."
+            })
+        }
+    }
+
+    private fun StoredEvent.isOccurrence() = originalId != null || originalSyncId != null || originalInstanceTime != null
 
     fun saveEvent(draft: EventDraft): Long = save(draft, null)
 
@@ -235,22 +246,9 @@ class CalendarRepository(context: Context) {
         writableCalendar(draft.calendarId)
         val original = draft.id?.let { readStored(it) ?: error("This event no longer exists.") }
         val currentRevision = draft.id?.let { revision(it) ?: error("This event no longer exists.") }
-        if (draft.id != null && currentRevision != null) require(!SchoolOwnership.isManaged(context, draft.id, currentRevision)) {
-            context.getString(R.string.school_sync_managed_event)
-        }
         if (original != null) {
-            require(original.invalidReason == null) { original.invalidReason.orEmpty() }
-            writableCalendar(original.draft.calendarId)
-            require(original.originalId == null && original.originalSyncId == null && original.originalInstanceTime == null) {
-                "Editing a single occurrence is not supported yet. Open the series in your existing calendar app."
-            }
+            requireChangeable(draft.id!!, original, delete = false)
             require(original.draft.calendarId == draft.calendarId) { "Moving an existing event between calendars is not supported yet." }
-            require(!hasAttendees(draft.id!!)) {
-                "Edit meetings with guests in your existing calendar app so you can review invitation updates."
-            }
-            require(original.exdate.isNullOrBlank() && original.rdate.isNullOrBlank() && original.exrule.isNullOrBlank() && !hasExceptions(draft.id!!)) {
-                "This series has exceptions. Edit it in your existing calendar app to preserve them."
-            }
         }
         val minutes = draft.reminderMinutes.distinct().sorted()
         val remindersChanged = original == null || original.draft.reminderMinutes.distinct().sorted() != minutes
@@ -292,8 +290,8 @@ class CalendarRepository(context: Context) {
             }
         }
         val operations = arrayListOf<ContentProviderOperation>()
-        if (expected != null && draft.id != null) operations += revisionAssert(draft.id, expected)
-        if (currentRevision != null && draft.id != null) operations += revisionAssert(draft.id, currentRevision)
+        if (expected != null && draft.id != null) operations += assertRow(Events.CONTENT_URI, draft.id, expected)
+        if (currentRevision != null && draft.id != null) operations += assertRow(Events.CONTENT_URI, draft.id, currentRevision)
         if (draft.id == null) {
             operations += ContentProviderOperation.newInsert(Events.CONTENT_URI).withValues(values).build()
         } else {
@@ -322,19 +320,11 @@ class CalendarRepository(context: Context) {
         checkWrite()
         val stored = readStored(id) ?: return
         val currentRevision = revision(id) ?: return
-        require(!SchoolOwnership.isManaged(context, id, currentRevision)) { context.getString(R.string.school_sync_managed_event) }
-        writableCalendar(stored.draft.calendarId)
-        require(stored.originalId == null && stored.originalSyncId == null && stored.originalInstanceTime == null) {
-            "Delete this occurrence in your existing calendar app to preserve the repeating series."
-        }
-        require(!hasAttendees(id)) { "Delete meetings with guests in your existing calendar app so you can review cancellation messages." }
-        require(stored.exdate.isNullOrBlank() && stored.rdate.isNullOrBlank() && stored.exrule.isNullOrBlank() && !hasExceptions(id)) {
-            "This series has exceptions. Delete it in your existing calendar app to preserve them."
-        }
+        requireChangeable(id, stored, delete = true)
         val uri = ContentUris.withAppendedId(Events.CONTENT_URI, id)
         val operations = arrayListOf<ContentProviderOperation>()
-        if (expected != null) operations += revisionAssert(id, expected)
-        operations += revisionAssert(id, currentRevision)
+        if (expected != null) operations += assertRow(Events.CONTENT_URI, id, expected)
+        operations += assertRow(Events.CONTENT_URI, id, currentRevision)
         operations += ContentProviderOperation.newDelete(uri).withExpectedCount(1).build()
         resolver.applyBatch(CalendarContract.AUTHORITY, operations)
     }
@@ -382,21 +372,21 @@ class CalendarRepository(context: Context) {
                 }
             }
         } ?: emptyList()
-        val reminderMap = mutableMapOf<Long, MutableList<Int>>()
-        records.mapNotNull { it.draft.id }.chunked(300).forEach { ids ->
-            resolver.query(Reminders.CONTENT_URI, arrayOf(Reminders.EVENT_ID, Reminders.MINUTES, Reminders.METHOD),
-                "${Reminders.EVENT_ID} IN (${ids.joinToString(",") { "?" }})",
-                ids.map(Long::toString).toTypedArray(), null)?.use { cursor ->
-                while (cursor.moveToNext()) {
-                    val method = cursor.int(Reminders.METHOD)
-                    val minutes = cursor.int(Reminders.MINUTES)
-                    if ((method == Reminders.METHOD_ALERT || method == Reminders.METHOD_DEFAULT) && minutes >= 0) {
-                        reminderMap.getOrPut(cursor.long(Reminders.EVENT_ID)) { mutableListOf() }.add(minutes)
-                    }
-                }
+        val reminderMap = reminderMinutes(records.mapNotNull { it.draft.id })
+        return records.map { it.copy(draft = it.draft.copy(reminderMinutes = reminderMap[it.draft.id].orEmpty())) }
+    }
+
+    /** On-device alert minutes per event; other reminder methods belong to the calendar service. */
+    internal fun reminderMinutes(eventIds: Collection<Long>): Map<Long, List<Int>> {
+        val reminders = mutableMapOf<Long, MutableList<Int>>()
+        eventIds.distinct().chunked(300).forEach { ids ->
+            resolver.query(Reminders.CONTENT_URI, arrayOf(Reminders.EVENT_ID, Reminders.MINUTES),
+                "${Reminders.EVENT_ID} IN (${ids.joinToString(",") { "?" }}) AND ${Reminders.MINUTES}>=0 AND (${Reminders.METHOD}=? OR ${Reminders.METHOD}=?)",
+                (ids.map(Long::toString) + Reminders.METHOD_ALERT.toString() + Reminders.METHOD_DEFAULT.toString()).toTypedArray(), null)?.use { cursor ->
+                while (cursor.moveToNext()) reminders.getOrPut(cursor.long(Reminders.EVENT_ID)) { mutableListOf() }.add(cursor.int(Reminders.MINUTES))
             }
         }
-        return records.map { it.copy(draft = it.draft.copy(reminderMinutes = reminderMap[it.draft.id].orEmpty())) }
+        return reminders
     }
 
     internal fun storedEvent(id: Long): StoredEvent? {
@@ -409,7 +399,7 @@ class CalendarRepository(context: Context) {
         checkRead()
         return resolver.query(ContentUris.withAppendedId(Events.CONTENT_URI, id), REVISION_PROJECTION, "${Events.DELETED}=0", null, null)?.use { cursor ->
             if (!cursor.moveToFirst()) null
-            else REVISION_PROJECTION.associateWith { name -> cursor.getColumnIndex(name).let { if (it < 0 || cursor.isNull(it)) null else cursor.getString(it) } }
+            else cursor.values(REVISION_PROJECTION)
         }
     }
 
@@ -471,11 +461,6 @@ class CalendarRepository(context: Context) {
         }
     }
 
-    private fun revisionAssert(id: Long, expected: Map<String, String?>): ContentProviderOperation =
-        ContentProviderOperation.newAssertQuery(ContentUris.withAppendedId(Events.CONTENT_URI, id))
-            .withValues(ContentValues().apply { expected.forEach { (key, value) -> if (value == null) putNull(key) else put(key, value) } })
-            .withExpectedCount(1).build()
-
     private fun readStored(id: Long): StoredEvent? = resolver.query(
         ContentUris.withAppendedId(Events.CONTENT_URI, id), STORED_PROJECTION, "${Events.DELETED}=0", null, null,
     )?.use { if (it.moveToFirst()) readStored(it) else null }
@@ -499,7 +484,7 @@ class CalendarRepository(context: Context) {
             EventDraft(id, cursor.long(Events.CALENDAR_ID), cursor.string(Events.TITLE), cursor.string(Events.DESCRIPTION),
                 cursor.string(Events.EVENT_LOCATION), start, end, allDay,
                 timezone,
-                cursor.optional(Events.RRULE), if (includeReminders) reminders(id) else emptyList()),
+                cursor.optional(Events.RRULE), if (includeReminders) reminderMinutes(listOf(id))[id].orEmpty() else emptyList()),
             cursor.optional(Events.UID_2445) ?: "event-$id@sunlith.local",
             cursor.optional(Events.EXDATE), cursor.optional(Events.RDATE), cursor.optional(Events.EXRULE),
             cursor.optionalLong(Events.ORIGINAL_ID), cursor.optionalLong(Events.ORIGINAL_INSTANCE_TIME),
@@ -508,17 +493,6 @@ class CalendarRepository(context: Context) {
             duration, invalidReason,
         )
     }
-
-    private fun reminders(eventId: Long): List<Int> = resolver.query(Reminders.CONTENT_URI,
-        arrayOf(Reminders.MINUTES, Reminders.METHOD), "${Reminders.EVENT_ID}=?", arrayOf(eventId.toString()), null,
-    )?.use { cursor -> buildList {
-        while (cursor.moveToNext()) {
-            val method = cursor.int(Reminders.METHOD)
-            if (method == Reminders.METHOD_ALERT || method == Reminders.METHOD_DEFAULT) {
-                cursor.int(Reminders.MINUTES).takeIf { it >= 0 }?.let(::add)
-            }
-        }
-    } } ?: emptyList()
 
     internal fun reminderPolicy(calendarId: Long): ReminderPolicy = resolver.query(
         ContentUris.withAppendedId(Calendars.CONTENT_URI, calendarId), arrayOf(Calendars.MAX_REMINDERS, Calendars.ALLOWED_REMINDERS, Calendars.ACCOUNT_TYPE),
@@ -586,3 +560,13 @@ private fun Cursor.optional(name: String): String? = string(name).takeIf(String:
 private fun Cursor.long(name: String): Long = getColumnIndex(name).let { if (it < 0 || isNull(it)) 0L else getLong(it) }
 private fun Cursor.optionalLong(name: String): Long? = getColumnIndex(name).let { if (it < 0 || isNull(it)) null else getLong(it) }
 private fun Cursor.int(name: String): Int = getColumnIndex(name).let { if (it < 0 || isNull(it)) 0 else getInt(it) }
+
+/** The current row's [columns] as provider strings. A missing or NULL column is null. */
+internal fun Cursor.values(columns: Array<String>): Map<String, String?> =
+    columns.associateWith { name -> getColumnIndex(name).let { if (it < 0 || isNull(it)) null else getString(it) } }
+
+internal fun contentValues(values: Map<String, String?>) = ContentValues().apply { values.forEach { (k, v) -> if (v == null) putNull(k) else put(k, v) } }
+
+/** Fails the whole batch unless row [id] of [uri] still holds [values]. */
+internal fun assertRow(uri: Uri, id: Long, values: Map<String, String?>): ContentProviderOperation =
+    ContentProviderOperation.newAssertQuery(ContentUris.withAppendedId(uri, id)).withValues(contentValues(values)).withExpectedCount(1).build()

@@ -1,8 +1,5 @@
 package io.github.sunsind.sunlith.school
 
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.flow.StateFlow
-
 data class SchoolPortalLink(val code: String, val description: String)
 
 /** The college's own Col.NET links. An empty [Loaded] list means the college publishes none, which is not an error. */
@@ -28,12 +25,9 @@ data class SchoolMessagesState(
     val portalLinksAvailable: Boolean? = null,
 )
 
-interface SchoolMessagesController {
-    val state: StateFlow<SchoolMessagesState>
-    suspend fun refresh()
-    suspend fun portalLinks(): List<SchoolPortalLink>
-    suspend fun resolvePortalLink(code: String): String?
-    /** Like [portalLinks], but keeps a real empty list apart from sign-in, network and unexpected answers. */
-    suspend fun loadPortalLinks(): SchoolPortalLinks = try { SchoolPortalLinks.Loaded(portalLinks()) }
-        catch (e: CancellationException) { throw e } catch (_: Exception) { SchoolPortalLinks.Failed(SchoolAdminStatus.NETWORK) }
+internal fun SchoolError.adminStatus() = when (this) {
+    SchoolError.SIGN_IN, SchoolError.MFA_REQUIRED -> SchoolAdminStatus.SIGN_IN
+    SchoolError.NETWORK -> SchoolAdminStatus.NETWORK
+    SchoolError.UNAVAILABLE -> SchoolAdminStatus.UNAVAILABLE
+    else -> SchoolAdminStatus.UNRECOGNIZED
 }

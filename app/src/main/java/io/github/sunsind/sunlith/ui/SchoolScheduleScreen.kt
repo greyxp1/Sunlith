@@ -14,7 +14,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,12 +31,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Visibility
@@ -56,7 +53,6 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -94,11 +90,12 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.sunsind.sunlith.system.notificationsAllowed
 import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.school.SchoolAlert
 import io.github.sunsind.sunlith.school.SchoolChangeSummary
 import io.github.sunsind.sunlith.school.SchoolError
-import io.github.sunsind.sunlith.school.SchoolScheduleController
+import io.github.sunsind.sunlith.school.SchoolScheduleManager
 import io.github.sunsind.sunlith.school.SchoolScheduleState
 import io.github.sunsind.sunlith.school.SchoolPortalClient
 import java.time.Instant
@@ -149,10 +146,6 @@ private fun SchoolError.message(): Int = when (this) {
     SchoolError.CALENDAR_LIMIT -> R.string.school_error_calendar_limit
 }
 
-private fun Context.notificationsAllowed(): Boolean =
-    NotificationManagerCompat.from(this).areNotificationsEnabled() &&
-        (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
-
 private fun Context.openNotificationSettings() {
     val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
         .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
@@ -167,7 +160,7 @@ private fun zoneLabel(id: String): String {
 }
 
 @Composable
-fun SchoolScheduleScreen(controller: SchoolScheduleController, onBack: () -> Unit, onChooseCalendars: () -> Unit, onOpenMessages: (() -> Unit)? = null) {
+fun SchoolScheduleScreen(controller: SchoolScheduleManager, onBack: () -> Unit, onChooseCalendars: () -> Unit, onOpenMessages: (() -> Unit)? = null) {
     val p = LocalPalette.current
     val state by controller.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
@@ -196,7 +189,7 @@ fun SchoolScheduleScreen(controller: SchoolScheduleController, onBack: () -> Uni
         Column(
             Modifier.fillMaxSize().padding(pad).imePadding().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 32.dp),
         ) {
-            if (failed) SchoolNotice(stringResource(R.string.school_error_generic), danger = true)
+            if (failed) Notice(stringResource(R.string.school_error_generic), danger = true)
             if (showForm) {
                 SignInForm(
                     state = state,
@@ -261,18 +254,18 @@ private fun SignInForm(
     }
 
     SectionTitle(stringResource(R.string.school_provider_colnet))
-    if (!changing) SchoolNote(stringResource(R.string.school_intro))
-    if (changing) SchoolValueRow(stringResource(R.string.school_institution), stringResource(if (school == "montmorency") R.string.school_montmorency else R.string.school_other_colnet))
-    else SchoolClickRow(
+    if (!changing) Note(stringResource(R.string.school_intro))
+    if (changing) ValueRow(stringResource(R.string.school_institution), stringResource(if (school == "montmorency") R.string.school_montmorency else R.string.school_other_colnet), stacked = true)
+    else ClickRow(
         stringResource(R.string.school_institution),
         stringResource(when (school) { "montmorency" -> R.string.school_montmorency; "custom" -> R.string.school_other_colnet; else -> R.string.school_choose_institution }),
         enabled = !busy,
     ) { pickSchool = true }
     val error = state.error
-    if (error != null && !busy) SchoolNotice(stringResource(error.message()), danger = true)
+    if (error != null && !busy) Notice(stringResource(error.message()), danger = true)
     if (changing) {
-        if (school == "custom") SchoolValueRow(stringResource(R.string.school_portal_short), portal)
-        SchoolValueRow(stringResource(R.string.school_username), username)
+        if (school == "custom") ValueRow(stringResource(R.string.school_portal_short), portal, stacked = true)
+        ValueRow(stringResource(R.string.school_username), username, stacked = true)
     }
 
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -346,18 +339,18 @@ private fun SignInForm(
                 }
             }
         }
-        destination != null -> SchoolNote(stringResource(R.string.school_destination_single, destination.name))
-        changing && state.calendarsLoaded -> SchoolNotice(stringResource(R.string.school_error_calendar_permission), danger = true)
-        state.calendarsLoaded -> SchoolNotice(stringResource(R.string.school_no_calendar), action = stringResource(R.string.action_choose_calendars), onAction = onChooseCalendars)
+        destination != null -> Note(stringResource(R.string.school_destination_single, destination.name))
+        changing && state.calendarsLoaded -> Notice(stringResource(R.string.school_error_calendar_permission), danger = true)
+        state.calendarsLoaded -> Notice(stringResource(R.string.school_no_calendar), action = stringResource(R.string.action_choose_calendars), onAction = onChooseCalendars)
     }
 
     ExpandRow(stringResource(R.string.school_more_options), more) { more = !more }
     if (more) {
-        if (changing) SchoolValueRow(stringResource(R.string.school_time_zone), zoneLabel(zone))
-        else SchoolClickRow(
+        if (changing) ValueRow(stringResource(R.string.school_time_zone), zoneLabel(zone), stacked = true)
+        else ClickRow(
             stringResource(R.string.school_time_zone), zoneLabel(zone), enabled = !busy,
         ) { pickZone = true }
-        SchoolNote(stringResource(R.string.school_time_zone_sub))
+        Note(stringResource(R.string.school_time_zone_sub))
     }
 
     Column(Modifier.padding(horizontal = 16.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -419,17 +412,17 @@ private fun ConnectedContent(
 
     state.pendingChanges?.let { PendingCard(it, state.busy, onApply, onDiscard) }
     StatusCard(state, onSync, onChangeConnection)
-    onOpenMessages?.let { SchoolClickRow(stringResource(R.string.school_messages_open), stringResource(R.string.school_messages_open_sub), onClick = it) }
+    onOpenMessages?.let { ClickRow(stringResource(R.string.school_messages_open), stringResource(R.string.school_messages_open_sub), onClick = it) }
 
     NotificationsSection(state, onNotificationsEnabled, onCategory)
 
     ExpandRow(stringResource(R.string.school_more_options), more) { more = !more }
     if (more) {
-        SchoolValueRow(stringResource(R.string.school_time_zone), zoneLabel(state.timeZone))
-        if (isMontmorencyPortal(state.portalAddress)) SchoolValueRow(stringResource(R.string.school_institution), stringResource(R.string.school_montmorency))
-        else if (state.portalAddress.isNotBlank()) SchoolValueRow(stringResource(R.string.school_portal_short), state.portalAddress)
-        SchoolClickRow(stringResource(R.string.school_change_connection), null, enabled = !state.busy, onClick = onChangeConnection)
-        SchoolClickRow(stringResource(R.string.school_disconnect), null, enabled = !state.busy, color = p.danger) { confirmDisconnect = true }
+        ValueRow(stringResource(R.string.school_time_zone), zoneLabel(state.timeZone), stacked = true)
+        if (isMontmorencyPortal(state.portalAddress)) ValueRow(stringResource(R.string.school_institution), stringResource(R.string.school_montmorency), stacked = true)
+        else if (state.portalAddress.isNotBlank()) ValueRow(stringResource(R.string.school_portal_short), state.portalAddress, stacked = true)
+        ClickRow(stringResource(R.string.school_change_connection), null, enabled = !state.busy, onClick = onChangeConnection)
+        ClickRow(stringResource(R.string.school_disconnect), null, enabled = !state.busy, color = p.danger) { confirmDisconnect = true }
     }
 
     if (confirmDisconnect) {
@@ -453,7 +446,7 @@ private fun StatusCard(state: SchoolScheduleState, onSync: () -> Unit, onSignInA
     val last = state.lastSuccessMillis
     val stale = last == null || now - last > STALE_AFTER_MILLIS
     val calendarName = state.availableCalendars.firstOrNull { it.id == state.calendarId }?.name
-    SchoolCard {
+    SurfaceCard {
         Text(
             state.termName.ifBlank { stringResource(R.string.school_connected) },
             color = p.ink, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium,
@@ -523,7 +516,7 @@ private fun PendingCard(
 ) {
     val p = LocalPalette.current
     val stacked = LocalDensity.current.fontScale > 1.3f
-    SchoolCard(emphasis = true) {
+    SurfaceCard(emphasis = true) {
         Text(
             stringResource(if (changes.linked > 0) R.string.school_link_title else R.string.school_review_title),
             color = p.ink, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium,
@@ -590,7 +583,7 @@ private fun NotificationsSection(
     val on = prefs.enabled && allowed
 
     SectionTitle(stringResource(R.string.school_notifications_section))
-    SchoolToggleRow(
+    ToggleRow(
         title = stringResource(R.string.school_notifications),
         subtitle = stringResource(R.string.school_notifications_sub),
         checked = on,
@@ -609,7 +602,7 @@ private fun NotificationsSection(
         }
     }
     if (denied || (prefs.enabled && !allowed)) {
-        SchoolNotice(
+        Notice(
             stringResource(R.string.school_notifications_blocked),
             action = stringResource(R.string.school_open_android_settings),
             onAction = { context.openNotificationSettings() },
@@ -746,42 +739,6 @@ private fun ZoneOption(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun SchoolCard(emphasis: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
-    val p = LocalPalette.current
-    val shape = RoundedCornerShape(12.dp)
-    Column(
-        Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth()
-            .then(if (emphasis) Modifier.background(p.raised, shape) else Modifier.background(p.surface, shape))
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-        content = content,
-    )
-}
-
-@Composable
-private fun CardTextButton(text: String, onClick: () -> Unit) {
-    TextButton(onClick = onClick, modifier = Modifier.heightIn(min = 48.dp)) { Text(text) }
-}
-
-@Composable
-private fun SchoolNote(text: String) {
-    Text(text, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = LocalPalette.current.muted, style = MaterialTheme.typography.bodyMedium)
-}
-
-@Composable
-private fun SchoolNotice(text: String, danger: Boolean = false, action: String? = null, onAction: () -> Unit = {}) {
-    val p = LocalPalette.current
-    Column(
-        Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().background(p.surface, RoundedCornerShape(10.dp))
-            .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = if (action != null) 4.dp else 12.dp)
-            .semantics { liveRegion = LiveRegionMode.Polite },
-    ) {
-        Text(text, color = if (danger) p.danger else p.ink, style = MaterialTheme.typography.bodyMedium)
-        if (action != null) CardTextButton(action, onAction)
-    }
-}
-
-@Composable
 private fun ExpandRow(title: String, expanded: Boolean, onToggle: () -> Unit) {
     val p = LocalPalette.current
     val state = stringResource(if (expanded) R.string.school_expanded else R.string.school_collapsed)
@@ -792,50 +749,6 @@ private fun ExpandRow(title: String, expanded: Boolean, onToggle: () -> Unit) {
     ) {
         Text(title, Modifier.weight(1f), color = p.ink, style = MaterialTheme.typography.bodyLarge)
         Icon(if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null, tint = p.muted)
-    }
-}
-
-@Composable
-private fun SchoolClickRow(title: String, subtitle: String?, enabled: Boolean = true, color: Color? = null, onClick: () -> Unit) {
-    val p = LocalPalette.current
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, color = if (enabled) color ?: p.ink else p.faint, style = MaterialTheme.typography.bodyLarge)
-            subtitle?.let { Text(it, color = p.muted, style = MaterialTheme.typography.bodyMedium) }
-        }
-        Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, Modifier.padding(start = 12.dp).size(20.dp), tint = p.muted)
-    }
-}
-
-@Composable
-private fun SchoolValueRow(title: String, value: String) {
-    val p = LocalPalette.current
-    Column(
-        Modifier.fillMaxWidth().heightIn(min = 56.dp).semantics(mergeDescendants = true) {}.padding(horizontal = 16.dp, vertical = 10.dp),
-    ) {
-        Text(title, color = p.ink, style = MaterialTheme.typography.bodyLarge)
-        Text(value, color = p.muted, style = MaterialTheme.typography.bodyMedium)
-    }
-}
-
-@Composable
-private fun SchoolToggleRow(title: String, subtitle: String?, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
-    val p = LocalPalette.current
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 56.dp).toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = onChange)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, color = p.ink, style = MaterialTheme.typography.bodyLarge)
-            subtitle?.let { Text(it, color = p.muted, style = MaterialTheme.typography.bodyMedium) }
-        }
-        Spacer(Modifier.width(12.dp))
-        Switch(checked = checked, onCheckedChange = null, enabled = enabled, colors = switchColors())
     }
 }
 

@@ -13,7 +13,7 @@ import java.util.Locale
 /** One row of "Message(s) de l'administration", plus its detail when the portal exposed a validated detail link. */
 data class SchoolAdminNotice(
     val id: String, val date: LocalDate, val subject: String, val sender: String,
-    val category: String = "", val body: String? = null, val detailAvailable: Boolean = false,
+    val category: String, val body: String?, val detailAvailable: Boolean,
 )
 
 enum class SchoolNoticeStatus { WARNING, CONFIRMED, UPDATED }
@@ -25,7 +25,7 @@ data class SchoolCollegeNotice(
     val sourceId: String, val sourceDate: LocalDate, val sender: String, val subject: String,
     val exceptions: List<String>, val text: String, val superseded: List<String>, val detailRead: Boolean,
     /** True when this notice also marks your classes that day (see [SchoolNoticeInterpreter.lifts]). */
-    val classesMarked: Boolean = false,
+    val classesMarked: Boolean,
 )
 
 /**
@@ -104,17 +104,8 @@ internal object SchoolAdminParser {
         return candidates.singleOrNull()
     }
 
-    fun validate(value: String, page: URI, colnet: URI): URI? = try {
-        val trimmed = value.trim()
-        if (trimmed.isEmpty() || trimmed.length > 2000 || trimmed.any { it.isISOControl() } || '\\' in trimmed) null
-        else {
-            val resolved = page.resolve(URI(trimmed.substringBefore('#'))).normalize()
-            val path = resolved.path.orEmpty()
-            if (resolved.scheme == "https" && resolved.host.equals(colnet.host, true) && resolved.port in listOf(-1, 443) && resolved.rawUserInfo == null &&
-                path.lowercase(Locale.ROOT).startsWith(colnet.path.lowercase(Locale.ROOT)) && !path.contains("..") &&
-                path.substringAfterLast('/').equals("affmessdir.asp", true)) resolved else null
-        }
-    } catch (_: Exception) { null }
+    fun validate(value: String, page: URI, colnet: URI): URI? =
+        sameFolder(value, page, colnet)?.takeIf { it.path.orEmpty().substringAfterLast('/').equals("affmessdir.asp", true) }
 
     /** Same-origin pages under the Col.NET folder only (used for redirects and frames). */
     fun sameFolder(value: String, page: URI, colnet: URI): URI? = try {
@@ -185,9 +176,9 @@ internal object SchoolNoticeInterpreter {
         return DELIVERY_SCOPE.containsMatchIn(text) || SITE_SCOPE.containsMatchIn(text) && !allRegularSites
     }
 
-    internal fun sentences(text: String): List<String> = text.split(Regex("(?<=[.!?])\\s+|\\n+")).map { it.trim() }.filter { it.isNotEmpty() }
+    private fun sentences(text: String): List<String> = text.split(Regex("(?<=[.!?])\\s+|\\n+")).map { it.trim() }.filter { it.isNotEmpty() }
 
-    internal fun dates(normalized: String, reference: LocalDate): List<LocalDate> {
+    private fun dates(normalized: String, reference: LocalDate): List<LocalDate> {
         val found = ArrayList<Pair<Int, LocalDate>>()
         DAY_MONTH.findAll(normalized).forEach { m ->
             val day = m.groupValues[1].toInt(); val month = MONTHS.indexOf(m.groupValues[2]) + 1
@@ -330,34 +321,32 @@ internal object SchoolNoticeInterpreter {
             }
         }.distinctBy { it.id }.sortedBy { it.date }.take(30)
 
-    /** Calendar notice items. Class marking separately requires confirmed full-body scope evidence. */
-    fun items(notices: List<SchoolCollegeNotice>, english: Boolean): List<SchoolItem> = notices.map { n ->
+    /** Calendar notice items, written in the notice's French. Class marking separately requires confirmed full-body scope evidence. */
+    fun items(notices: List<SchoolCollegeNotice>): List<SchoolItem> = notices.map { n ->
         val dateFmt = DateTimeFormatter.ISO_LOCAL_DATE.withResolverStyle(ResolverStyle.STRICT)
-        fun t(time: LocalTime) = if (english) time.toString() else if (time.minute == 0) "${time.hour} h" else "${time.hour} h ${"%02d".format(time.minute)}"
+        fun t(time: LocalTime) = if (time.minute == 0) "${time.hour} h" else "${time.hour} h ${"%02d".format(time.minute)}"
         val title = when {
-            n.status == SchoolNoticeStatus.UPDATED -> if (english) "Class disruption notice updated (check college notice)" else "Avis de perturbation des cours mis à jour (vérifiez l'avis du Collège)"
-            n.status == SchoolNoticeStatus.CONFIRMED && n.until != null -> if (english) "Classes lifted until ${t(n.until)} (college notice)" else "Levée des cours jusqu'à ${t(n.until)} (avis du Collège)"
-            n.status == SchoolNoticeStatus.CONFIRMED -> if (english) "Classes lifted (college notice)" else "Levée des cours (avis du Collège)"
-            n.decisionAt != null -> if (english) "Possible class lifting, not confirmed (decision around ${t(n.decisionAt)})" else "Levée des cours possible, non confirmée (décision vers ${t(n.decisionAt)})"
-            else -> if (english) "Possible class disruption, not confirmed" else "Perturbation possible des cours, non confirmée"
+            n.status == SchoolNoticeStatus.UPDATED -> "Avis de perturbation des cours mis à jour (vérifiez l'avis du Collège)"
+            n.status == SchoolNoticeStatus.CONFIRMED && n.until != null -> "Levée des cours jusqu'à ${t(n.until)} (avis du Collège)"
+            n.status == SchoolNoticeStatus.CONFIRMED -> "Levée des cours (avis du Collège)"
+            n.decisionAt != null -> "Levée des cours possible, non confirmée (décision vers ${t(n.decisionAt)})"
+            else -> "Perturbation possible des cours, non confirmée"
         }
         val notes = buildList {
-            add(if (n.status == SchoolNoticeStatus.CONFIRMED) {
-                if (english) "Confirmed by ${n.sender} in the notice of ${n.sourceDate.format(dateFmt)}." else "Confirmé par ${n.sender} dans l'avis du ${n.sourceDate.format(dateFmt)}."
-            } else if (n.status == SchoolNoticeStatus.UPDATED) {
-                if (english) "The earlier disruption notice was corrected. Check the full notice for current arrangements." else "L'avis de perturbation précédent a été corrigé. Vérifiez le texte complet pour les modalités actuelles."
-            } else {
-                if (english) "Warning only. This is not a confirmed cancellation (notice of ${n.sourceDate.format(dateFmt)}, ${n.sender})." else "Avertissement seulement. Ce n'est pas une annulation confirmée (avis du ${n.sourceDate.format(dateFmt)}, ${n.sender})."
+            add(when (n.status) {
+                SchoolNoticeStatus.CONFIRMED -> "Confirmé par ${n.sender} dans l'avis du ${n.sourceDate.format(dateFmt)}."
+                SchoolNoticeStatus.UPDATED -> "L'avis de perturbation précédent a été corrigé. Vérifiez le texte complet pour les modalités actuelles."
+                else -> "Avertissement seulement. Ce n'est pas une annulation confirmée (avis du ${n.sourceDate.format(dateFmt)}, ${n.sender})."
             })
-            add((if (english) "Subject: " else "Objet : ") + n.subject)
-            n.exceptions.forEach { add((if (english) "Exception: " else "Exception : ") + it) }
-            n.resume?.let { add(if (english) "Classes resume ${it.format(dateFmt)}." else "Reprise des cours le ${it.format(dateFmt)}.") }
+            add("Objet : " + n.subject)
+            n.exceptions.forEach { add("Exception : $it") }
+            n.resume?.let { add("Reprise des cours le ${it.format(dateFmt)}.") }
             add(when {
-                !n.classesMarked -> if (english) "Your classes were not changed. Check which sites and programs the notice covers." else "Vos cours n'ont pas été modifiés. Vérifiez quels lieux et programmes l'avis touche."
-                n.until != null -> if (english) "This notice covers classes starting before ${t(n.until)}. Local edits stay unchanged. Check the exceptions in the notice." else "Cet avis concerne les cours qui commencent avant ${t(n.until)}. Vos modifications sont conservées. Vérifiez les exceptions dans l'avis."
-                else -> if (english) "This notice covers classes on this day. Local edits stay unchanged. Check the exceptions in the notice." else "Cet avis concerne les cours de cette journée. Vos modifications sont conservées. Vérifiez les exceptions dans l'avis."
+                !n.classesMarked -> "Vos cours n'ont pas été modifiés. Vérifiez quels lieux et programmes l'avis touche."
+                n.until != null -> "Cet avis concerne les cours qui commencent avant ${t(n.until)}. Vos modifications sont conservées. Vérifiez les exceptions dans l'avis."
+                else -> "Cet avis concerne les cours de cette journée. Vos modifications sont conservées. Vérifiez les exceptions dans l'avis."
             })
-            if (!n.detailRead) add(if (english) "Only the notice title could be read. Open Col.NET for the full text." else "Seul le titre de l'avis a pu être lu. Ouvrez Col.NET pour le texte complet.")
+            if (!n.detailRead) add("Seul le titre de l'avis a pu être lu. Ouvrez Col.NET pour le texte complet.")
             add("")
             add(n.text)
         }

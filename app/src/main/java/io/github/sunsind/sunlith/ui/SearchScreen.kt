@@ -107,7 +107,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.results(events: List<
                 f.dayShortWithYear(day), color = LocalPalette.current.muted, style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 4.dp).semantics { heading() },
             )
-            EventCard(e, day, f, onClick = { vm.open(Screen.Details(e)) })
+            CalendarEventCard(e, day, f, onClick = { vm.open(Screen.Details(e)) })
         }
     }
 }
