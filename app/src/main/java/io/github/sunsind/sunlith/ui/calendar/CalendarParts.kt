@@ -1,6 +1,9 @@
 package io.github.sunsind.sunlith.ui.calendar
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,12 +16,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -41,6 +49,29 @@ import io.github.sunsind.sunlith.ui.Formats
 import io.github.sunsind.sunlith.ui.LocalPalette
 import io.github.sunsind.sunlith.ui.weekDays
 import java.time.LocalDate
+
+/** Draws feedback before a scroll or click wins the gesture, without consuming either one's input. */
+@Composable
+internal fun Modifier.calendarPress(drawPress: DrawScope.(Offset) -> Unit): Modifier {
+    val press = remember { mutableStateOf<Offset?>(null) }
+    return pointerInput(Unit) {
+        awaitEachGesture {
+            press.value = awaitFirstDown(requireUnconsumed = false).position
+            try {
+                waitForUpOrCancellation()
+            } finally {
+                press.value = null
+            }
+        }
+    }.drawWithContent {
+        drawContent()
+        press.value?.let { drawPress(it) }
+    }
+}
+
+@Composable
+internal fun Modifier.calendarPress(color: Color): Modifier =
+    calendarPress { drawRect(color.copy(alpha = 0.18f)) }
 
 @Composable
 internal fun WeekdayLabels(f: Formats) {

@@ -122,17 +122,17 @@ internal fun rememberTimelineGridColors(): TimelineGridColors {
  * Rounded hour tiles drawn in one pass, so a week adds no composable per cell. The gaps between tiles replace grid
  * lines.
  */
-internal fun DrawScope.drawTimelineGrid(axis: TimelineAxis, colors: TimelineGridColors, highlightToday: Boolean) {
+internal fun DrawScope.drawTimelineGrid(axis: TimelineAxis, color: Color) {
+    for (hour in 0 until 24) drawTimelineTile(axis, hour, color)
+}
+
+internal fun DrawScope.drawTimelineTile(axis: TimelineAxis, hour: Int, color: Color) {
     val inset = TIMELINE_BLOCK_INSET.toPx()
-    val corner = EVENT_CORNER.toPx()
     val width = size.width - inset * 2
-    if (width <= 0f) return
-    val color = if (highlightToday) colors.today else colors.tile
-    for (hour in 0 until 24) {
-        val top = axis.minuteToY(hour * 60) + inset
-        val height = axis.minuteToY((hour + 1) * 60) - inset - top
-        if (height > 0f) drawRoundRect(color, Offset(inset, top), Size(width, height), CornerRadius(minOf(corner, height / 2f)))
-    }
+    val top = axis.minuteToY(hour * 60) + inset
+    val height = axis.minuteToY((hour + 1) * 60) - inset - top
+    if (width > 0f && height > 0f)
+        drawRoundRect(color, Offset(inset, top), Size(width, height), CornerRadius(minOf(EVENT_CORNER.toPx(), height / 2f)))
 }
 
 /** The current time across today's free time, the same rounded bar a class in progress shows inside its card. */
@@ -219,4 +219,7 @@ internal data class TimelineAxis(val hourPx: Float) {
     fun minuteToY(minute: Float): Float = minute.coerceIn(0f, 1440f) / 60f * hourPx
 
     fun yToMinute(y: Float): Float = (y / hourPx * 60f).coerceIn(0f, 1440f)
+
+    fun hourAt(y: Float): Int = (yToMinute(y).toInt() / 60).coerceAtMost(23)
+
 }

@@ -549,9 +549,10 @@ internal fun ContinuousTimeline(
                         items(TIMELINE_DAYS, key = { origin + it - TIMELINE_CENTER }, contentType = { "timeline_day" }) { i ->
                             val day = date(i)
                             val isToday = day == today
+                            val tileColor = if (isToday && days > 1) gridColors.today else gridColors.tile
                             Box(Modifier.width(column).fillMaxHeight().drawBehind {
                                 // Day shows one date, so today needs no tint to stand out from its neighbours.
-                                drawTimelineGrid(axis, gridColors, highlightToday = isToday && days > 1)
+                                drawTimelineGrid(axis, tileColor)
                                 if (isToday) {
                                     // A class in progress marks the time inside its card instead, so the line never pokes out beside it.
                                     val now = day.atStartOfDay(zone).toInstant().toEpochMilli() + clock.value * 60_000L

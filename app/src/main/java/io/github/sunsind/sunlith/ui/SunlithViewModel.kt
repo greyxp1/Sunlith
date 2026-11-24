@@ -791,13 +791,17 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
             ?: writable.firstOrNull()?.id
     }
 
-    fun newEvent(date: LocalDate) {
+    fun newEvent(date: LocalDate, slotHour: Int? = null) {
         val now = LocalDateTime.now()
         // Today starts at the next half hour, and the default hour stops at midnight rather than running into tomorrow.
-        val startTime = if (date != now.toLocalDate()) LocalTime.of(9, 0)
-            else LocalTime.MIN.plusMinutes((((now.hour * 60 + now.minute) / 30 + 1) * 30L).coerceAtMost(23 * 60 + 30L))
+        val startTime = when {
+            slotHour != null -> LocalTime.of(slotHour, 0)
+            date != now.toLocalDate() -> LocalTime.of(9, 0)
+            else -> LocalTime.MIN.plusMinutes((((now.hour * 60 + now.minute) / 30 + 1) * 30L).coerceAtMost(23 * 60 + 30L))
+        }
         val start = date.atTime(startTime)
-        val end = minOf(start.plusHours(1), date.atTime(LocalTime.of(23, 59)))
+        val end = if (slotHour != null) start.plusHours(1)
+            else minOf(start.plusHours(1), date.atTime(LocalTime.of(23, 59)))
         val state = EditorState(
             id = null, calendarId = defaultCalendarId(), lockedCalendar = false,
             startDate = date, startTime = startTime, endDate = end.toLocalDate(), endTime = end.toLocalTime(),

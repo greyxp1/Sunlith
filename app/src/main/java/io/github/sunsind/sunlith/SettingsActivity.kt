@@ -18,6 +18,7 @@ import io.github.sunsind.sunlith.school.SchoolScheduleManager
 import io.github.sunsind.sunlith.ui.settings.CalendarsScreen
 import io.github.sunsind.sunlith.device.DeviceLinkScreen
 import io.github.sunsind.sunlith.ui.event.EventEditorScreen
+import io.github.sunsind.sunlith.ui.PageEntrance
 import io.github.sunsind.sunlith.school.SchoolMessagesScreen
 import io.github.sunsind.sunlith.school.SchoolPage
 import io.github.sunsind.sunlith.school.SchoolScheduleScreen
@@ -43,6 +44,7 @@ class SettingsActivity : ComponentActivity() {
                 if (vm.loaded && importUri != null && vm.importUi == null) vm.startImport(importUri)
             }
             SunlithWindow(vm) {
+                BackHandler(onBack = ::finish)
                 when (page) {
                     Page.Settings -> SettingsScreen(vm, onBack = ::finish)
                     Page.Calendars -> CalendarsScreen(vm, onBack = ::finish)
@@ -68,7 +70,7 @@ class SettingsActivity : ComponentActivity() {
                         val state = rememberSaveableStateHolder()
                         if (vm.stack.lastOrNull() == Screen.Editor) {
                             BackHandler(onBack = vm::back)
-                            EventEditorScreen(vm)
+                            PageEntrance { EventEditorScreen(vm) }
                         } else state.SaveableStateProvider("messages") {
                             SchoolMessagesScreen(
                                 SchoolMessagesManager.get(applicationContext), onBack = ::finish,

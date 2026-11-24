@@ -64,7 +64,7 @@
 
     <string name="editor_new">New event</string>
     <string name="editor_edit">Edit event</string>
-    <string name="editor_title_hint">Title</string>
+    <string name="editor_title_hint">Title (required)</string>
     <string name="editor_starts">Starts</string>
     <string name="editor_ends">Ends</string>
     <string name="editor_end_before_start">The event must end after it starts.</string>
@@ -76,7 +76,6 @@
     <string name="editor_calendar_locked">%1$s, existing events stay in their calendar</string>
     <string name="editor_no_writable">No calendar on this phone can be edited.</string>
     <string name="editor_custom_kept">Custom rule from another app, kept as is</string>
-    <string name="editor_no_reminders">No reminders</string>
     <string name="editor_add_reminder">Add reminder</string>
     <string name="editor_remove_reminder">Remove reminder: %1$s</string>
     <string name="editor_reminders_off">Reminder notifications are off in Sunlith, so these reminders will not alert you from this app.</string>

@@ -12,9 +12,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,6 +33,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Notes
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CheckBox
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Event
@@ -42,6 +42,7 @@ import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Repeat
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenu
@@ -70,7 +71,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -126,6 +126,7 @@ fun EventEditorScreen(vm: SunlithViewModel) {
     val writable = vm.writableCalendars
     val problem = state.problem(writable)
     val problemMessage = problem?.let { stringResource(it) }
+    val endInvalid = state.endInvalid()
 
     val close: () -> Unit = { if (vm.editorDirty) confirmDiscard = true else vm.closeEditor() }
     BackHandler(enabled = vm.editorDirty, onBack = close)
@@ -165,19 +166,15 @@ fun EventEditorScreen(vm: SunlithViewModel) {
         },
     ) { pad ->
         Column(
-            Modifier.fillMaxSize().padding(pad).imePadding().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 24.dp),
+            Modifier.fillMaxSize().padding(pad).consumeWindowInsets(pad).imePadding()
+                .verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
         ) {
             TextField(
                 value = state.title,
                 onValueChange = { v -> vm.updateEditor { it.copy(title = v) } },
-                modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, bottom = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                 textStyle = MaterialTheme.typography.headlineSmall,
                 label = { Text(stringResource(R.string.editor_title_hint)) },
-                supportingText = {
-                    val blank = state.title.isBlank()
-                    Text(stringResource(R.string.editor_need_title),
-                        Modifier.alpha(if (blank) 1f else 0f).then(if (blank) Modifier else Modifier.clearAndSetSemantics { }), color = p.muted)
-                },
                 colors = plainFieldColors(),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                 maxLines = 3,
@@ -200,10 +197,10 @@ fun EventEditorScreen(vm: SunlithViewModel) {
             DateTimeRow(
                 label = stringResource(R.string.editor_ends), date = f.dayShort(state.endDate),
                 dateLabel = stringResource(R.string.editor_end_date), timeLabel = stringResource(R.string.editor_end_time),
-                time = if (state.allDay) null else f.time(state.endTime), error = state.endInvalid(),
+                time = if (state.allDay) null else f.time(state.endTime), error = endInvalid,
                 onDate = { picking = Picking.EndDate }, onTime = { picking = Picking.EndTime },
             )
-            if (state.endInvalid()) {
+            if (endInvalid) {
                 Text(stringResource(R.string.editor_end_before_start), Modifier.padding(start = 56.dp, end = 16.dp, bottom = 8.dp)
                     .semantics { liveRegion = LiveRegionMode.Polite }, color = p.danger, style = MaterialTheme.typography.bodyMedium)
             }
@@ -212,6 +209,8 @@ fun EventEditorScreen(vm: SunlithViewModel) {
             }
             HorizontalDivider(color = p.line)
 
+            CalendarChooser(state, writable, vm)
+            RepeatChooser(state, vm, f)
             EditorRow(Icons.Outlined.CheckBox, onClick = null, modifier = Modifier.toggleable(state.todo, role = Role.Switch) { value ->
                 vm.updateEditor { it.copy(todo = value) }
             }) {
@@ -222,34 +221,28 @@ fun EventEditorScreen(vm: SunlithViewModel) {
                 }
                 Switch(checked = state.todo, onCheckedChange = null, colors = switchColors())
             }
-            HorizontalDivider(color = p.line)
-
-            CalendarChooser(state, writable, vm)
-            RepeatChooser(state, vm, f)
-            HorizontalDivider(color = p.line)
-
             var addOpen by remember { mutableStateOf(false) }
             EditorRow(Icons.Outlined.Notifications, onClick = null) {
                 Column(Modifier.weight(1f)) {
-                    if (state.reminders.isEmpty()) {
-                        Text(stringResource(R.string.editor_no_reminders), color = p.muted, style = MaterialTheme.typography.bodyLarge)
-                    } else {
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            state.reminders.forEach { minutes ->
-                                InputChip(
-                                    selected = false,
-                                    onClick = { vm.updateEditor { it.copy(reminders = it.reminders - minutes) } },
-                                    label = { Text(f.reminder(minutes)) },
-                                    trailingIcon = { Icon(Icons.Outlined.Close, stringResource(R.string.editor_remove_reminder, f.reminder(minutes)), Modifier.size(InputChipDefaults.IconSize)) },
-                                )
-                            }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+                        state.reminders.forEach { minutes ->
+                            InputChip(
+                                selected = false,
+                                onClick = { vm.updateEditor { it.copy(reminders = it.reminders - minutes) } },
+                                label = { Text(f.reminder(minutes)) },
+                                trailingIcon = { Icon(Icons.Outlined.Close, stringResource(R.string.editor_remove_reminder, f.reminder(minutes)), Modifier.size(InputChipDefaults.IconSize)) },
+                            )
                         }
-                    }
-                    Box {
-                        TextButton(onClick = { addOpen = true }, modifier = Modifier.heightIn(min = 48.dp), contentPadding = PaddingValues(horizontal = 0.dp)) { Text(stringResource(R.string.editor_add_reminder)) }
-                        DropdownMenu(expanded = addOpen, onDismissRequest = { addOpen = false }) {
-                            ReminderPresets.filter { it !in state.reminders }.forEach { minutes ->
-                                DropdownMenuItem(text = { Text(f.reminder(minutes)) }, onClick = { addOpen = false; addReminder(minutes) })
+                        Box {
+                            AssistChip(
+                                onClick = { addOpen = true },
+                                label = { Text(stringResource(R.string.editor_add_reminder)) },
+                                leadingIcon = { Icon(Icons.Outlined.Add, null, Modifier.size(16.dp)) },
+                            )
+                            DropdownMenu(expanded = addOpen, onDismissRequest = { addOpen = false }) {
+                                ReminderPresets.filter { it !in state.reminders }.forEach { minutes ->
+                                    DropdownMenuItem(text = { Text(f.reminder(minutes)) }, onClick = { addOpen = false; addReminder(minutes) })
+                                }
                             }
                         }
                     }
@@ -393,7 +386,7 @@ private fun DateTimeRow(label: String, date: String, dateLabel: String, timeLabe
     val dateWidth = with(density) {
         measurer.measure(date, MaterialTheme.typography.bodyLarge, maxLines = 1, softWrap = false).size.width.toDp()
     } + 20.dp
-    BoxWithConstraints(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 56.dp, end = 8.dp)) {
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(start = 56.dp, end = 8.dp)) {
         val labelAbove = dateWidth > maxWidth - 72.dp
         FlowRow(Modifier.fillMaxWidth(), itemVerticalAlignment = Alignment.CenterVertically) {
             Text(label, if (labelAbove) Modifier.fillMaxWidth() else Modifier.width(72.dp), color = p.muted,
@@ -444,7 +437,6 @@ private fun EditorField(icon: ImageVector, value: String, hint: String, singleLi
         TextField(
             value = value, onValueChange = onChange, modifier = Modifier.weight(1f),
             label = { Text(hint) }, colors = plainFieldColors(), singleLine = singleLine,
-            minLines = if (singleLine) 1 else 3,
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
         )
     }

@@ -64,7 +64,7 @@
 
     <string name="editor_new">Nouvel événement</string>
     <string name="editor_edit">Modifier l\'événement</string>
-    <string name="editor_title_hint">Titre</string>
+    <string name="editor_title_hint">Titre (obligatoire)</string>
     <string name="editor_starts">Début</string>
     <string name="editor_ends">Fin</string>
     <string name="editor_end_before_start">L\'événement doit finir après son début.</string>
@@ -76,7 +76,6 @@
     <string name="editor_calendar_locked">%1$s, un événement existant reste dans son agenda</string>
     <string name="editor_no_writable">Aucun agenda de ce téléphone n\'est modifiable.</string>
     <string name="editor_custom_kept">Règle personnalisée d\'une autre app, gardée telle quelle</string>
-    <string name="editor_no_reminders">Aucun rappel</string>
     <string name="editor_add_reminder">Ajouter un rappel</string>
     <string name="editor_remove_reminder">Retirer le rappel : %1$s</string>
     <string name="editor_reminders_off">Les notifications de rappel sont désactivées dans Sunlith, donc ces rappels ne vous avertiront pas depuis cette app.</string>

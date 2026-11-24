@@ -62,6 +62,7 @@ import io.github.sunsind.sunlith.data.CalendarEvent
 import io.github.sunsind.sunlith.data.SchoolAbsenceCoverage
 import io.github.sunsind.sunlith.ui.Formats
 import io.github.sunsind.sunlith.ui.LocalPalette
+import io.github.sunsind.sunlith.ui.rememberPageSource
 import io.github.sunsind.sunlith.ui.SunlithPalette
 import io.github.sunsind.sunlith.ui.timeLabel
 import java.time.Instant
@@ -382,10 +383,13 @@ internal fun CalendarEventCard(
     val endpoint = morph?.endpoint(event, day, inList = true, radius)
     val card = if (endpoint == null) modifier else morph.card(modifier, endpoint, day)
     val typography = MaterialTheme.typography
+    val source = rememberPageSource()
     Row(
         card.fillMaxWidth().height(IntrinsicSize.Min).heightIn(min = 52.dp).clip(shape).background(colors.container)
+            .then(source.modifier)
             .then(if (event.canceled) Modifier.drawBehind { drawCanceledBars(colors.content) } else Modifier)
-            .clickable(role = Role.Button, onClick = onClick)
+            .calendarPress(colors.content)
+            .clickable(role = Role.Button) { source.open(action = onClick) }
             .semantics { contentDescription = listOf(time, event.location).filter { it.isNotBlank() }.joinToString(", ") }
             .padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
