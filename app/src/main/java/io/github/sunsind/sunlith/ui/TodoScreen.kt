@@ -14,13 +14,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -41,7 +40,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.data.TodoItem
@@ -53,7 +51,7 @@ import kotlinx.coroutines.delay
 
 @Composable
 fun TodoScreen(vm: SunlithViewModel) {
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     val f = rememberFormats()
     val zone = ZoneId.systemDefault()
     var showCompleted by rememberSaveable { mutableStateOf(false) }
@@ -69,17 +67,17 @@ fun TodoScreen(vm: SunlithViewModel) {
     val completed = available.filter { it.key in vm.todoCompleted }.sortedByDescending { it.availableAt }
 
     Scaffold(
-        containerColor = p.background,
+        containerColor = p.canvas,
         topBar = {
             ScreenTopBar(stringResource(R.string.todo_title)) {
                 IconButton(onClick = vm::reloadTodos) {
-                    Icon(Icons.Outlined.Refresh, stringResource(R.string.todo_refresh), tint = p.ink)
+                    Icon(Icons.Outlined.Refresh, stringResource(R.string.todo_refresh), tint = p.onSurface)
                 }
             }
         },
     ) { pad ->
         // No progress bar under the toolbar: it drew a light line for a frame or two on every open. The list keeps its
-        // last items while it refreshes, and only an empty first load shows a small spinner in the list.
+        // last items while it refreshes, and only an empty first load shows a loading indicator in the list.
         Column(Modifier.fillMaxSize().padding(pad)) {
             LazyColumn(
                 Modifier.fillMaxSize(),
@@ -89,7 +87,7 @@ fun TodoScreen(vm: SunlithViewModel) {
                 vm.todoError?.let { error ->
                     item(key = "error") {
                         Column(Modifier.padding(8.dp)) {
-                            Text(error, color = p.danger, style = MaterialTheme.typography.bodyMedium)
+                            Text(error, color = p.error, style = MaterialTheme.typography.bodyMedium)
                             TextButton(onClick = vm::reloadTodos) { Text(stringResource(R.string.todo_retry)) }
                         }
                     }
@@ -100,8 +98,8 @@ fun TodoScreen(vm: SunlithViewModel) {
                 if (pending.isEmpty() && vm.todoError == null && !vm.todoLoading) {
                     item(key = "empty") {
                         Column(Modifier.padding(horizontal = 8.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(stringResource(R.string.todo_empty), color = p.ink, style = MaterialTheme.typography.bodyLarge)
-                            Text(stringResource(R.string.todo_empty_hint), color = p.muted, style = MaterialTheme.typography.bodyMedium)
+                            Text(stringResource(R.string.todo_empty), color = p.onSurface, style = MaterialTheme.typography.bodyLarge)
+                            Text(stringResource(R.string.todo_empty_hint), color = p.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                 }
@@ -111,7 +109,7 @@ fun TodoScreen(vm: SunlithViewModel) {
                 if (completed.isNotEmpty()) {
                     item(key = "completed") {
                         TextButton(onClick = { showCompleted = !showCompleted }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                            Text(stringResource(R.string.todo_completed, completed.size), color = p.muted)
+                            Text(stringResource(R.string.todo_completed, completed.size), color = p.onSurfaceVariant)
                         }
                     }
                     if (showCompleted) items(completed, key = { it.key }) { item ->
@@ -124,15 +122,15 @@ fun TodoScreen(vm: SunlithViewModel) {
 }
 
 /**
- * Small spinner for a list that has nothing to show yet. It only appears when loading takes long enough to notice,
- * so a quick load never blinks a spinner on and off.
+ * Loading indicator for a list that has nothing to show yet. It only appears when loading takes long enough to notice,
+ * so a quick load never blinks it on and off.
  */
 @Composable
 internal fun ListLoading() {
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { delay(LIST_LOADING_VISIBLE_AFTER_MS); visible = true }
     Box(Modifier.fillMaxWidth().heightIn(min = 72.dp), contentAlignment = Alignment.Center) {
-        if (visible) CircularProgressIndicator(Modifier.size(24.dp), color = LocalPalette.current.muted, strokeWidth = 2.dp)
+        if (visible) LoadingIndicator()
     }
 }
 
@@ -147,7 +145,7 @@ private fun TodoRow(item: TodoItem, done: Boolean, f: Formats, zone: ZoneId, onC
     val day = event.span(zone).first
     val context = LocalContext.current
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(colors.container),
+        Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(colors.container),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Checkbox(checked = done, onCheckedChange = { onComplete() },
@@ -160,7 +158,7 @@ private fun TodoRow(item: TodoItem, done: Boolean, f: Formats, zone: ZoneId, onC
                 .padding(start = 4.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
-            Text(title, color = colors.content, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+            Text(title, color = colors.content, style = MaterialTheme.typography.bodyLargeEmphasized)
             Text(f.dayShortWithYear(day), color = colors.content, style = MaterialTheme.typography.bodyMedium)
             Text(context.timeLabel(event, day, zone, f), color = colors.content, style = MaterialTheme.typography.bodyMedium)
         }

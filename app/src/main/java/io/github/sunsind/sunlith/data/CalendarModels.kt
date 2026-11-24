@@ -1,6 +1,6 @@
 package io.github.sunsind.sunlith.data
 
-import io.github.sunsind.sunlith.school.SchoolClassLift
+import io.github.sunsind.sunlith.school.messages.SchoolClassLift
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -97,6 +97,17 @@ data class EventDraft(
 enum class EditBlockReason { MISSING, READ_ONLY, GUESTS, RECURRENCE_EXCEPTION, INVALID_PROVIDER_DATA, SCHOOL_MANAGED }
 
 internal data class ReminderPolicy(val maximumCount: Int, val alertsAllowed: Boolean, val maximumMinutes: Int, val writeMethod: Int = 1) {
+    // Each check gives the reason [minutes] break the policy, or null. Callers choose the order they report them in.
+    fun countProblem(minutes: List<Int>, preserved: Int = 0): String? =
+        if (minutes.size + preserved > maximumCount) "This calendar allows at most $maximumCount reminders per event." else null
+
+    fun alertProblem(minutes: List<Int>): String? =
+        if (minutes.isNotEmpty() && !alertsAllowed) "This calendar does not support on-device reminders." else null
+
+    fun timeProblem(minutes: List<Int>): String? =
+        if (minutes.any { it > maximumMinutes }) "This calendar supports reminders up to $maximumMinutes minutes before an event." else null
+
+    /** What ICS import keeps of [minutes], trimmed to fit instead of rejected. */
     fun accepted(minutes: List<Int>): List<Int> = if (!alertsAllowed) emptyList()
         else minutes.distinct().filter { it in 0..maximumMinutes }.sorted().take(maximumCount.coerceAtLeast(0))
 }

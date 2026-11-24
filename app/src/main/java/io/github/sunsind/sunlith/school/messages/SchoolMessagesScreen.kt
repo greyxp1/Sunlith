@@ -1,15 +1,15 @@
-package io.github.sunsind.sunlith.school
+package io.github.sunsind.sunlith.school.messages
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -26,7 +27,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,8 +43,8 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -58,16 +58,17 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.sunsind.sunlith.R
-import io.github.sunsind.sunlith.ui.LocalPalette
+import io.github.sunsind.sunlith.ui.GroupItem
 import io.github.sunsind.sunlith.ui.Note
 import io.github.sunsind.sunlith.ui.ScreenTopBar
 import io.github.sunsind.sunlith.ui.SectionTitle
 import io.github.sunsind.sunlith.ui.SurfaceCard
+import io.github.sunsind.sunlith.ui.canvas
+import io.github.sunsind.sunlith.ui.card
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -77,7 +78,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SchoolMessagesScreen(
     controller: SchoolMessagesManager,
@@ -86,7 +86,7 @@ internal fun SchoolMessagesScreen(
     onOpenMessage: (String) -> Unit,
     onOpenDate: (LocalDate) -> Unit = {},
 ) {
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     val state by controller.state.collectAsStateWithLifecycle()
     val inbox by controller.inbox.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
@@ -161,11 +161,11 @@ internal fun SchoolMessagesScreen(
             if (snackbar.showSnackbar(errorText, retryLabel, withDismissAction = true) == SnackbarResult.ActionPerformed) refresh()
         }
     }
-    Scaffold(containerColor = p.background, snackbarHost = { SnackbarHost(snackbar) }, topBar = {
+    Scaffold(containerColor = p.canvas, snackbarHost = { SnackbarHost(snackbar) }, topBar = {
         if (messageId != null && mailId == null) ScreenTopBar(stringResource(R.string.school_notice_detail)) {
             if (state.portalUrl != null) {
                 IconButton(onClick = ::openPortal) {
-                    Icon(Icons.AutoMirrored.Outlined.OpenInNew, stringResource(R.string.school_admin_open_portal), tint = p.ink)
+                    Icon(Icons.AutoMirrored.Outlined.OpenInNew, stringResource(R.string.school_admin_open_portal), tint = p.onSurface)
                 }
             }
         }
@@ -232,7 +232,7 @@ internal fun SchoolMessagesScreen(
                     SchoolAdminStatus.UNRECOGNIZED -> R.string.school_admin_portal_links_unrecognized
                     SchoolAdminStatus.NOT_LOADED -> R.string.school_messages_not_connected
                     else -> R.string.school_admin_portal_links_network
-                }), Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = p.ink)
+                }), Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = p.onSurface)
             })
     }
     links?.let { list ->
@@ -243,7 +243,7 @@ internal fun SchoolMessagesScreen(
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     if (resolvingLink) MessageLoading(R.string.school_mail_opening_link)
                     if (linkFailed) Text(stringResource(R.string.school_admin_portal_link_failed),
-                        Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = p.danger)
+                        Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = p.error)
                     list.forEach { link ->
                         Text(link.description, Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(enabled = !resolvingLink, role = Role.Button) {
                             resolvingLink = true
@@ -256,7 +256,7 @@ internal fun SchoolMessagesScreen(
                                 catch (_: Exception) { linkFailed = true }
                                 finally { if (isActive) resolvingLink = false }
                             }
-                        }.padding(vertical = 12.dp), color = p.ink, style = MaterialTheme.typography.bodyLarge)
+                        }.padding(vertical = 12.dp), color = p.onSurface, style = MaterialTheme.typography.bodyLarge)
                     }
                 }
             })
@@ -268,11 +268,10 @@ private const val NOTICES_PAGE = 1
 
 @Composable
 private fun MessageTabs(selectedPage: Int, onSelect: (Int) -> Unit) {
-    val p = LocalPalette.current
-    PrimaryTabRow(selectedPage, containerColor = p.background, contentColor = p.accent) {
+    PrimaryTabRow(selectedPage) {
         listOf(R.string.school_inbox_tab, R.string.school_messages_section_main).forEachIndexed { page, label ->
             Tab(selected = page == selectedPage, onClick = { onSelect(page) }, text = { Text(stringResource(label)) },
-                selectedContentColor = p.accent, unselectedContentColor = p.muted)
+                unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -298,8 +297,8 @@ private fun AdminList(
         }
         if (notices.isNotEmpty() && college.isNotEmpty()) item { SectionTitle(stringResource(R.string.school_admin_list)) }
         if (notices.isEmpty() && status == SchoolAdminStatus.OK) item { Note(stringResource(R.string.school_admin_empty), live = true) }
-        items(notices, key = { it.id }) { n ->
-            SchoolMessageRow(n.subject, n.sender, shortDate(n.date)) { onOpen(n) }
+        itemsIndexed(notices, key = { _, n -> n.id }) { index, n ->
+            GroupItem(index, notices.size) { SchoolMessageRow(n.subject, n.sender, shortDate(n.date)) { onOpen(n) } }
         }
     }
 }
@@ -317,24 +316,24 @@ private fun noticeProblem(status: SchoolAdminStatus, busy: Boolean): Int? = when
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CollegeCard(n: SchoolCollegeNotice, onOpenDate: (LocalDate) -> Unit, onSource: () -> Unit) {
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     val confirmed = n.status == SchoolNoticeStatus.CONFIRMED
     SchoolMessageCard(emphasis = true) {
-        Text(n.subject, Modifier.semantics { heading() }, color = p.ink, style = MaterialTheme.typography.titleMedium)
-        Text(longDate(n.targetDate), color = p.ink, style = MaterialTheme.typography.bodyMedium)
+        Text(n.subject, Modifier.semantics { heading() }, color = p.onSurface, style = MaterialTheme.typography.titleMediumEmphasized)
+        Text(longDate(n.targetDate), color = p.onSurface, style = MaterialTheme.typography.bodyMedium)
         Text(stringResource(when (n.status) { SchoolNoticeStatus.CONFIRMED -> R.string.school_admin_confirmed; SchoolNoticeStatus.UPDATED -> R.string.school_admin_updated; else -> R.string.school_admin_warning }),
-            color = if (confirmed) p.danger else p.accent, style = MaterialTheme.typography.labelLarge)
-        Text(listOf(n.sender, stringResource(R.string.school_admin_posted, shortDate(n.sourceDate))).filter { it.isNotBlank() }.joinToString(", "), color = p.muted, style = MaterialTheme.typography.bodySmall)
-        n.until?.let { Text(stringResource(R.string.school_admin_until, shortTime(it)), color = p.ink, style = MaterialTheme.typography.bodyMedium) }
-        n.decisionAt?.let { Text(stringResource(R.string.school_admin_decision, shortTime(it)), color = p.ink, style = MaterialTheme.typography.bodyMedium) }
-        n.resume?.let { Text(stringResource(R.string.school_admin_resume, longDate(it)), color = p.ink, style = MaterialTheme.typography.bodyMedium) }
+            color = if (confirmed) p.error else p.primary, style = MaterialTheme.typography.labelLarge)
+        Text(listOf(n.sender, stringResource(R.string.school_admin_posted, shortDate(n.sourceDate))).filter { it.isNotBlank() }.joinToString(", "), color = p.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+        n.until?.let { Text(stringResource(R.string.school_admin_until, shortTime(it)), color = p.onSurface, style = MaterialTheme.typography.bodyMedium) }
+        n.decisionAt?.let { Text(stringResource(R.string.school_admin_decision, shortTime(it)), color = p.onSurface, style = MaterialTheme.typography.bodyMedium) }
+        n.resume?.let { Text(stringResource(R.string.school_admin_resume, longDate(it)), color = p.onSurface, style = MaterialTheme.typography.bodyMedium) }
         if (n.exceptions.isNotEmpty()) {
-            Text(stringResource(R.string.school_admin_exceptions), Modifier.padding(top = 4.dp), color = p.muted, style = MaterialTheme.typography.labelMedium)
-            n.exceptions.forEach { Text("• $it", color = p.ink, style = MaterialTheme.typography.bodySmall) }
+            Text(stringResource(R.string.school_admin_exceptions), Modifier.padding(top = 4.dp), color = p.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
+            n.exceptions.forEach { Text("• $it", color = p.onSurface, style = MaterialTheme.typography.bodySmall) }
         }
-        if (n.superseded.isNotEmpty()) Text(stringResource(R.string.school_admin_superseded), color = p.muted, style = MaterialTheme.typography.bodySmall)
-        if (!n.detailRead) Text(stringResource(R.string.school_admin_title_only), color = p.muted, style = MaterialTheme.typography.bodySmall)
-        Text(stringResource(if (n.classesMarked) R.string.school_admin_classes_marked else R.string.school_admin_scope_note), color = p.muted, style = MaterialTheme.typography.bodySmall)
+        if (n.superseded.isNotEmpty()) Text(stringResource(R.string.school_admin_superseded), color = p.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+        if (!n.detailRead) Text(stringResource(R.string.school_admin_title_only), color = p.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+        Text(stringResource(if (n.classesMarked) R.string.school_admin_classes_marked else R.string.school_admin_scope_note), color = p.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton({ onOpenDate(n.targetDate) }, Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.school_admin_show_day)) }
             TextButton(onSource, Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.school_admin_open_notice)) }
@@ -344,16 +343,16 @@ private fun CollegeCard(n: SchoolCollegeNotice, onOpenDate: (LocalDate) -> Unit,
 
 @Composable
 private fun AdminDetail(n: SchoolAdminNotice, college: SchoolCollegeNotice?, onOpenPortal: () -> Unit, onOpenDate: (LocalDate) -> Unit) {
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(n.subject, Modifier.semantics { heading() }, color = p.ink, style = MaterialTheme.typography.headlineSmall)
-        Text(longDate(n.date), color = p.muted, style = MaterialTheme.typography.bodySmall)
-        if (n.sender.isNotBlank()) Text(stringResource(R.string.school_admin_source, n.sender), color = p.ink, style = MaterialTheme.typography.bodyMedium)
-        if (n.category.isNotBlank()) Text(stringResource(R.string.school_admin_category, n.category), color = p.muted, style = MaterialTheme.typography.bodySmall)
-        HorizontalDivider(Modifier.padding(vertical = 8.dp), color = p.line)
-        if (n.body != null) SelectionContainer { Text(n.body, color = p.ink, style = MaterialTheme.typography.bodyLarge) }
+        Text(n.subject, Modifier.semantics { heading() }, color = p.onSurface, style = MaterialTheme.typography.headlineSmallEmphasized)
+        Text(longDate(n.date), color = p.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+        if (n.sender.isNotBlank()) Text(stringResource(R.string.school_admin_source, n.sender), color = p.onSurface, style = MaterialTheme.typography.bodyMedium)
+        if (n.category.isNotBlank()) Text(stringResource(R.string.school_admin_category, n.category), color = p.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+        HorizontalDivider(Modifier.padding(vertical = 8.dp), color = p.outlineVariant)
+        if (n.body != null) SelectionContainer { Text(n.body, color = p.onSurface, style = MaterialTheme.typography.bodyLarge) }
         else {
-            Text(stringResource(R.string.school_admin_title_only), color = p.muted, style = MaterialTheme.typography.bodyMedium)
+            Text(stringResource(R.string.school_admin_title_only), color = p.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             TextButton(onOpenPortal, Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.school_admin_open_portal)) }
         }
         if (college != null) TextButton({ onOpenDate(college.targetDate) }, Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.school_admin_show_day)) }
@@ -363,7 +362,8 @@ private fun AdminDetail(n: SchoolAdminNotice, college: SchoolCollegeNotice?, onO
 // Message cards end in text buttons, so they keep a tighter bottom edge.
 @Composable
 internal fun SchoolMessageCard(emphasis: Boolean = false, content: @Composable ColumnScope.() -> Unit) = SurfaceCard(
-    Modifier.padding(horizontal = 16.dp, vertical = 6.dp), emphasis, PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 6.dp), content,
+    Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+    if (emphasis) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.card, PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 6.dp), content,
 )
 
 @Composable

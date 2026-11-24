@@ -1,4 +1,4 @@
-package io.github.sunsind.sunlith.school
+package io.github.sunsind.sunlith.school.sync
 
 import android.content.Context
 import android.provider.CalendarContract.Events
@@ -7,6 +7,8 @@ import io.github.sunsind.sunlith.data.SchoolEventAbsence
 import io.github.sunsind.sunlith.data.SchoolEventInfo
 import io.github.sunsind.sunlith.data.SchoolEventPeriod
 import io.github.sunsind.sunlith.data.values
+import io.github.sunsind.sunlith.school.messages.SchoolClassLift
+import io.github.sunsind.sunlith.school.messages.SchoolNoticeInterpreter
 
 internal object SchoolCalendarPresentation {
     fun annotate(context: Context, events: List<CalendarEvent>): List<CalendarEvent> {

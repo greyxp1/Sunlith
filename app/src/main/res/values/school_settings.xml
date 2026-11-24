@@ -59,8 +59,6 @@
     <string name="school_apply">Apply</string>
     <string name="school_link_apply">Link classes</string>
 
-    <string name="school_notify_changes">Notify me about changes</string>
-    <string name="school_notifications_blocked">Notifications are off for this app.</string>
     <string name="school_alert_class_times">Time changes</string>
     <string name="school_alert_rooms">Room changes</string>
     <string name="school_alert_teachers">Teacher changes</string>

@@ -1,15 +1,12 @@
 package io.github.sunsind.sunlith
 
-import android.content.Intent
 import android.content.ComponentName
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
-import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,11 +24,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import io.github.sunsind.sunlith.school.sync.SchoolScheduleManager
 import io.github.sunsind.sunlith.system.CalendarHandoff
 import io.github.sunsind.sunlith.system.LauncherIcons
-import io.github.sunsind.sunlith.school.SchoolScheduleManager
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import io.github.sunsind.sunlith.system.readCalendarHandoff
 import io.github.sunsind.sunlith.system.restoreCalendarHandoff
 import io.github.sunsind.sunlith.system.save
@@ -42,6 +40,8 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val viewModel: SunlithViewModel by viewModels()

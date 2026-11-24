@@ -165,8 +165,7 @@
     <string name="theme_light">Clair</string>
     <string name="theme_system">Comme le système</string>
     <string name="settings_local_sub">Reste sur ce téléphone et ne se synchronise avec aucun compte.</string>
-    <string name="settings_reminders_toggle">Notifications de rappel</string>
-    <string name="settings_reminders_blocked">Les notifications sont bloquées pour Sunlith. Activez cette option pour les autoriser.</string>
+    <string name="settings_reminders_toggle">Rappels des événements</string>
     <string name="settings_import">Importer un fichier .ics</string>
     <string name="settings_export">Exporter un fichier .ics</string>
     <string name="settings_exporting">Exportation…</string>

@@ -10,11 +10,11 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.provider.CalendarContract
+import io.github.sunsind.sunlith.school.sync.SchoolScheduleManager
 import io.github.sunsind.sunlith.widget.AgendaWidgetReceiver
-import io.github.sunsind.sunlith.school.SchoolScheduleManager
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.ConcurrentHashMap
 
 object AppRefresh {
     internal val executor = Executors.newSingleThreadExecutor()

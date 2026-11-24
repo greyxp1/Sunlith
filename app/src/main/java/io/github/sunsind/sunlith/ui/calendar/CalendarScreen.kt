@@ -9,8 +9,6 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -24,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -36,7 +35,6 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -72,7 +70,6 @@ import io.github.sunsind.sunlith.SettingsActivity
 import io.github.sunsind.sunlith.data.CalendarEvent
 import io.github.sunsind.sunlith.ui.Formats
 import io.github.sunsind.sunlith.ui.InfoCard
-import io.github.sunsind.sunlith.ui.LocalPalette
 import io.github.sunsind.sunlith.ui.Screen
 import io.github.sunsind.sunlith.ui.SunlithViewModel
 import io.github.sunsind.sunlith.ui.ViewMode
@@ -83,10 +80,8 @@ import io.github.sunsind.sunlith.ui.weekStart
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.YearMonth
-import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -253,7 +248,7 @@ fun CalendarScreen(vm: SunlithViewModel, modifier: Modifier = Modifier) {
             while (true) delay(millisToNextMinute(syncClock().toLocalTime()) + 50)
         }
     }
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     val f = rememberFormats()
     val motion = rememberMotion()
     var showPicker by rememberSaveable { mutableStateOf(false) }
@@ -438,85 +433,6 @@ fun CalendarScreen(vm: SunlithViewModel, modifier: Modifier = Modifier) {
     }
 
     if (showPicker) DatePick(if (vm.continuousTimeline()) vm.timelineActionDate() else vm.selectedDate, { showPicker = false }) { vm.selectAndFocus(it) }
-}
-
-// Keep positions adjacent across the wrap so Month and Day slide in the same direction as any other pair.
-private fun viewModeAt(index: Int): ViewMode = ViewMode.entries[index.mod(ViewMode.entries.size)]
-
-private class CalendarViewSwipe(mode: ViewMode, private val select: (ViewMode) -> Unit) {
-    var position by mutableFloatStateOf(mode.ordinal.toFloat())
-        private set
-    var pill by mutableFloatStateOf(0f)
-        private set
-
-    private var committed = mode
-    private var destination by mutableIntStateOf(mode.ordinal)
-    private var settle: Job? = null
-    private var origin = position
-    private var pillOrigin = 0f
-    private var dragging = false
-
-    fun peek(delta: Int): ViewMode = viewModeAt(destination + delta)
-
-    fun isShowing(mode: ViewMode): Boolean = position == destination.toFloat() && peek(0) == mode
-
-    fun drag(pull: Float, pagePull: Float) {
-        if (!dragging) {
-            settle?.cancel()
-            dragging = true
-            origin = position
-            pillOrigin = pill
-        }
-        val next = origin + pagePull * 0.85f
-        position = next.coerceIn(minOf(origin, destination - 1f), maxOf(origin, destination + 1f))
-        pill = (pillOrigin + pull / (0.14f + abs(pull))).coerceIn(-1f, 1f)
-    }
-
-    fun release(delta: Int, speed: Float, motion: Boolean, scope: CoroutineScope) {
-        dragging = false
-        slide(destination + delta, motion, scope, speed)
-    }
-
-    fun sync(mode: ViewMode, motion: Boolean, scope: CoroutineScope) {
-        if (mode != committed) {
-            committed = mode
-            dragging = false
-            slide(destination + mode.ordinal - peek(0).ordinal, motion, scope)
-        } else if (!motion && !dragging && (position != destination.toFloat() || pill != 0f)) {
-            slide(destination, false, scope)
-        }
-    }
-
-    private fun slide(target: Int, motion: Boolean, scope: CoroutineScope, speed: Float = 0f) {
-        settle?.cancel()
-        val start = position
-        destination = target
-        val startPill = pill
-        val end = target.toFloat()
-        val mode = viewModeAt(target)
-        if (!motion || (start == end && startPill == 0f)) {
-            position = end
-            pill = 0f
-            committed = mode
-            select(mode)
-            return
-        }
-        // Commit the view only once it owns the screen. A second swipe can retarget the visible slide without
-        // activating and repositioning a calendar page that the user is still swiping past.
-        settle = scope.launch {
-            val remaining = end - start
-            val momentum = if (speed * remaining > 0f) (speed * 0.55f / remaining).coerceAtMost(5f) else 0f
-            animate(0f, 1f, initialVelocity = momentum, animationSpec = spring(stiffness = 650f, visibilityThreshold = 0.003f)) { value, _ ->
-                val fraction = value.coerceIn(0f, 1f)
-                position = start + remaining * fraction
-                pill = startPill * (1f - fraction)
-            }
-            position = end
-            pill = 0f
-            committed = mode
-            select(mode)
-        }
-    }
 }
 
 /** Events per day for [from]..[to]. Days that are not loaded yet give no events, never stale ones from another range. */

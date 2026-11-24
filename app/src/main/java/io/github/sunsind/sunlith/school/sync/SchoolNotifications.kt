@@ -1,4 +1,4 @@
-package io.github.sunsind.sunlith.school
+package io.github.sunsind.sunlith.school.sync
 
 import android.app.NotificationChannel
 import android.app.NotificationChannelGroup
@@ -10,6 +10,11 @@ import android.net.Uri
 import androidx.core.app.NotificationCompat
 import io.github.sunsind.sunlith.MainActivity
 import io.github.sunsind.sunlith.R
+import io.github.sunsind.sunlith.school.SchoolAlert
+import io.github.sunsind.sunlith.school.SchoolError
+import io.github.sunsind.sunlith.school.messages.SchoolAdminNotice
+import io.github.sunsind.sunlith.school.messages.SchoolMail
+import io.github.sunsind.sunlith.school.messages.SchoolNoticeInterpreter
 import io.github.sunsind.sunlith.system.notificationsAllowed
 
 internal class SchoolNotifications(private val context: Context) {
@@ -78,13 +83,13 @@ internal class SchoolNotifications(private val context: Context) {
     }
     private fun post(tag: String, channel: String, title: String, text: String, kind: String, category: String, big: String? = null, date: String? = null,
         extra: NotificationCompat.Builder.() -> Unit = {}) {
-        val manager = channels()
+        val manager = registerChannels()
         val notification = NotificationCompat.Builder(context, channel).setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title).setContentText(text).setContentIntent(open(kind, date)).setAutoCancel(true).setCategory(category)
             .apply { if (big != null) setStyle(NotificationCompat.BigTextStyle().bigText(big)) }.apply(extra).build()
         try { manager.notify(tag, 0, notification) } catch (_: SecurityException) { }
     }
-    private fun channels(): NotificationManager {
+    fun registerChannels(): NotificationManager {
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannelGroup(NotificationChannelGroup("school", context.getString(R.string.school_sync_notification_title)))
         manager.createNotificationChannel(NotificationChannel(CHANGES, context.getString(R.string.school_sync_changes_channel), NotificationManager.IMPORTANCE_DEFAULT).apply { group = "school" })

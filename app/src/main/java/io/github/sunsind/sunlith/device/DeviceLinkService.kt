@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
@@ -85,8 +86,7 @@ class DeviceLinkService : Service() {
     }
 
     private fun notification(): Notification {
-        getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(CHANNEL, getString(R.string.device_link_channel_title), NotificationManager.IMPORTANCE_LOW))
+        registerChannel(this)
         val stop = PendingIntent.getService(this, 1, Intent(this, DeviceLinkService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val open = PendingIntent.getActivity(this, 2, calendarTaskIntent(this), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
@@ -106,6 +106,9 @@ class DeviceLinkService : Service() {
         // One queue orders closing the old service before binding a replacement.
         private val lifecycle = Executors.newSingleThreadExecutor { Thread(it, "sunlith-link-lifecycle").apply { isDaemon = true } }
         private const val CHANNEL = "device_link"
+
+        internal fun registerChannel(context: Context) = context.getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel(CHANNEL, context.getString(R.string.device_link_channel_title), NotificationManager.IMPORTANCE_LOW))
         private const val NOTIFICATION_ID = 4041
         internal const val ACTION_STOP = "io.github.sunsind.sunlith.device.STOP"
     }

@@ -1,16 +1,11 @@
-package io.github.sunsind.sunlith.school
+package io.github.sunsind.sunlith.school.sync
 
-import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.provider.Settings
 import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -33,21 +28,21 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.RadioButtonDefaults
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -64,7 +59,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.autofill.ContentType
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -75,7 +69,6 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
@@ -84,25 +77,26 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import io.github.sunsind.sunlith.R
-import io.github.sunsind.sunlith.system.notificationsAllowed
+import io.github.sunsind.sunlith.SettingsActivity
+import io.github.sunsind.sunlith.school.SchoolChangeSummary
+import io.github.sunsind.sunlith.school.SchoolError
+import io.github.sunsind.sunlith.school.SchoolScheduleState
+import io.github.sunsind.sunlith.school.portal.MONTMORENCY_PORTAL
+import io.github.sunsind.sunlith.school.portal.isMontmorencyPortal
 import io.github.sunsind.sunlith.ui.ClickRow
-import io.github.sunsind.sunlith.ui.LocalPalette
+import io.github.sunsind.sunlith.ui.ListGroup
 import io.github.sunsind.sunlith.ui.Notice
-import io.github.sunsind.sunlith.ui.ScreenTopBar
+import io.github.sunsind.sunlith.ui.PageScaffold
 import io.github.sunsind.sunlith.ui.SurfaceCard
-import io.github.sunsind.sunlith.ui.ToggleRow
 import io.github.sunsind.sunlith.ui.ValueRow
-import io.github.sunsind.sunlith.ui.settings.checkColors
 import io.github.sunsind.sunlith.ui.settings.openAppSettings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import io.github.sunsind.sunlith.system.needsNotificationPermission
 
 private const val STALE_AFTER_MILLIS = 24L * 60 * 60 * 1000
 
@@ -120,18 +114,11 @@ private fun SchoolError.message(): Int = when (this) {
     SchoolError.CALENDAR_LIMIT -> R.string.school_error_calendar_limit
 }
 
-private fun Context.openNotificationSettings() {
-    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-        .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    runCatching { startActivity(intent) }.onFailure { openAppSettings() }
-}
-
 @Composable
 internal fun SchoolScheduleScreen(
     controller: SchoolScheduleManager,
 ) {
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     val state by controller.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var signingIn by rememberSaveable { mutableStateOf(false) }
@@ -145,7 +132,7 @@ internal fun SchoolScheduleScreen(
 
     BackHandler(enabled = signingIn && state.connected && !state.busy) { signingIn = false }
 
-    Scaffold(containerColor = p.background, topBar = { ScreenTopBar(title) }) { pad ->
+    PageScaffold(title) { pad ->
         key(showSignIn, reviewingSetup) {
             var failed by remember { mutableStateOf(false) }
             fun launchAction(action: suspend () -> Unit, after: () -> Unit = {}) {
@@ -190,8 +177,13 @@ internal fun SchoolScheduleScreen(
                         if (!reviewingSetup) {
                             SyncSection(state, onSync = { launchAction({ controller.refresh() }) },
                                 onDisconnect = { remove -> launchAction({ controller.disconnect(remove) }) })
-                            NotificationsSection(state.notificationsEnabled) { enabled ->
-                                launchAction({ controller.setNotificationsEnabled(enabled) })
+                            val context = LocalContext.current
+                            ListGroup {
+                                item {
+                                    ClickRow(stringResource(R.string.settings_notifications), icon = Icons.AutoMirrored.Outlined.KeyboardArrowRight) {
+                                        SettingsActivity.open(context, SettingsActivity.Page.Notifications)
+                                    }
+                                }
                             }
                         }
                     }
@@ -207,7 +199,7 @@ private fun SignInForm(
     changing: Boolean,
     onConnect: (String, String, String, () -> Unit) -> Unit,
 ) {
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     var portal by rememberSaveable { mutableStateOf(state.portalAddress) }
     var school by rememberSaveable { mutableStateOf(if (changing) { if (isMontmorencyPortal(state.portalAddress)) "montmorency" else "custom" } else "") }
     var pickSchool by rememberSaveable { mutableStateOf(false) }
@@ -224,17 +216,20 @@ private fun SignInForm(
         }
     }
 
-    if (changing) ValueRow(stringResource(R.string.school_institution), stringResource(if (school == "montmorency") R.string.school_montmorency else R.string.school_other_colnet), stacked = true)
-    else ClickRow(
-        stringResource(when (school) { "montmorency" -> R.string.school_montmorency; "custom" -> R.string.school_other_colnet; else -> R.string.school_choose_institution }),
-        enabled = !busy,
-    ) { pickSchool = true }
     val error = state.error
-    if (error != null && !busy) Notice(stringResource(error.message()), danger = true)
-    if (changing) {
-        if (school == "custom") ValueRow(stringResource(R.string.school_portal_short), portal, stacked = true)
-        ValueRow(stringResource(R.string.school_username), username, stacked = true)
+    ListGroup {
+        if (changing) {
+            item { ValueRow(stringResource(R.string.school_institution), stringResource(if (school == "montmorency") R.string.school_montmorency else R.string.school_other_colnet), stacked = true) }
+            if (school == "custom") item { ValueRow(stringResource(R.string.school_portal_short), portal, stacked = true) }
+            item { ValueRow(stringResource(R.string.school_username), username, stacked = true) }
+        } else item {
+            ClickRow(
+                stringResource(when (school) { "montmorency" -> R.string.school_montmorency; "custom" -> R.string.school_other_colnet; else -> R.string.school_choose_institution }),
+                enabled = !busy, icon = Icons.Outlined.ArrowDropDown,
+            ) { pickSchool = true }
+        }
     }
+    if (error != null && !busy) Notice(stringResource(error.message()), danger = true)
 
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (school == "custom" && !changing) OutlinedTextField(
@@ -246,10 +241,9 @@ private fun SignInForm(
                 capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false,
                 keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next,
             ),
-            colors = schoolFieldColors(),
             modifier = Modifier.fillMaxWidth(),
         )
-        if (school == "custom" && !changing) Text(stringResource(R.string.school_portal_help), color = p.muted, style = MaterialTheme.typography.bodySmall)
+        if (school == "custom" && !changing) Text(stringResource(R.string.school_portal_help), color = p.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         if (!changing) OutlinedTextField(
             value = username, onValueChange = { username = it },
             label = { Text(stringResource(R.string.school_username)) },
@@ -259,7 +253,6 @@ private fun SignInForm(
                 capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false,
                 keyboardType = KeyboardType.Text, imeAction = ImeAction.Next,
             ),
-            colors = schoolFieldColors(),
             modifier = Modifier.fillMaxWidth().semantics { contentType = ContentType.Username },
         )
         OutlinedTextField(
@@ -278,11 +271,10 @@ private fun SignInForm(
                     Icon(
                         if (showPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
                         stringResource(if (showPassword) R.string.school_password_hide else R.string.school_password_show),
-                        tint = p.muted,
+                        tint = p.onSurfaceVariant,
                     )
                 }
             },
-            colors = schoolFieldColors(),
             modifier = Modifier.fillMaxWidth().semantics { contentType = ContentType.Password },
         )
     }
@@ -291,10 +283,9 @@ private fun SignInForm(
         Button(
             onClick = submit, enabled = ready,
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = p.accent, contentColor = p.onAccent),
         ) {
             if (busy) {
-                CircularProgressIndicator(Modifier.size(18.dp), color = p.onAccent, strokeWidth = 2.dp)
+                CircularProgressIndicator(Modifier.size(18.dp), color = LocalContentColor.current, strokeWidth = 2.dp)
                 Spacer(Modifier.width(10.dp))
                 Text(stringResource(R.string.school_connecting))
             } else {
@@ -305,8 +296,7 @@ private fun SignInForm(
 
     if (pickSchool) AlertDialog(
         onDismissRequest = { pickSchool = false },
-        containerColor = p.surface,
-        title = { Text(stringResource(R.string.school_choose_institution), color = p.ink) },
+        title = { Text(stringResource(R.string.school_choose_institution), color = p.onSurface) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 SchoolOption(stringResource(R.string.school_montmorency), school == "montmorency") {
@@ -341,7 +331,7 @@ private fun ConnectionError(state: SchoolScheduleState, onSignInAgain: () -> Uni
 @Composable
 private fun SyncSection(state: SchoolScheduleState, onSync: () -> Unit, onDisconnect: (Boolean) -> Unit) {
     var confirmDisconnect by rememberSaveable { mutableStateOf(false) }
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     val context = LocalContext.current
     val last = state.lastSuccessMillis
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -370,11 +360,11 @@ private fun SyncSection(state: SchoolScheduleState, onSync: () -> Unit, onDiscon
             }
         }
     }
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+    SurfaceCard(padding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp)) {
         Text(
             if (isMontmorencyPortal(state.portalAddress)) stringResource(R.string.school_montmorency)
             else state.portalAddress.ifBlank { stringResource(R.string.school_connected) },
-            color = p.ink, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium,
+            color = p.onSurface, style = MaterialTheme.typography.titleMediumEmphasized,
             modifier = Modifier.semantics { heading() },
         )
         val status = when {
@@ -388,27 +378,26 @@ private fun SyncSection(state: SchoolScheduleState, onSync: () -> Unit, onDiscon
             )
         }
         if (state.accountName.isNotBlank()) {
-            Text(state.accountName, Modifier.padding(top = 2.dp), color = p.muted, style = MaterialTheme.typography.bodyMedium)
+            Text(state.accountName, color = p.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
         }
         if (status != null) {
             Row(
-                Modifier.padding(top = 2.dp).semantics(mergeDescendants = true) { if (state.busy) liveRegion = LiveRegionMode.Polite },
+                Modifier.semantics(mergeDescendants = true) { if (state.busy) liveRegion = LiveRegionMode.Polite },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (state.busy) {
-                    CircularProgressIndicator(Modifier.size(16.dp), color = p.muted, strokeWidth = 2.dp)
+                    CircularProgressIndicator(Modifier.size(16.dp), color = p.onSurfaceVariant, strokeWidth = 2.dp)
                     Spacer(Modifier.width(8.dp))
                 }
-                Text(status, color = if (stale && !state.busy) p.danger else p.muted, style = MaterialTheme.typography.bodyMedium)
+                Text(status, color = if (stale && !state.busy) p.error else p.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             }
         }
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            TextButton(
-                onClick = onSync, enabled = !state.busy, modifier = Modifier.heightIn(min = 48.dp),
-                contentPadding = PaddingValues(horizontal = 0.dp),
-            ) { Text(stringResource(R.string.school_sync_now)) }
+        FlowRow(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilledTonalButton(onClick = onSync, enabled = !state.busy, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(stringResource(R.string.school_sync_now))
+            }
             TextButton(onClick = { confirmDisconnect = true }, enabled = !state.busy, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text(stringResource(R.string.school_disconnect), color = if (state.busy) p.faint else p.danger)
+                Text(stringResource(R.string.school_disconnect), color = if (state.busy) p.outline else p.error)
             }
         }
     }
@@ -428,17 +417,17 @@ private fun PendingCard(
     onApply: () -> Unit,
     onDiscard: () -> Unit,
 ) {
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     val linking = changes.legacyLinks > 0
-    SurfaceCard(emphasis = true) {
+    SurfaceCard(color = MaterialTheme.colorScheme.secondaryContainer) {
         Text(
             stringResource(if (linking) R.string.school_link_title else R.string.school_review_title),
-            color = p.ink, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium,
+            color = p.onSurface, style = MaterialTheme.typography.titleMediumEmphasized,
             modifier = Modifier.semantics { heading(); liveRegion = LiveRegionMode.Polite },
         )
         if (linking) {
             PendingLine(pluralStringResource(R.plurals.school_pending_linked, changes.legacyLinks, changes.legacyLinks))
-            Text(stringResource(R.string.school_link_managed), color = p.muted, style = MaterialTheme.typography.bodyMedium)
+            Text(stringResource(R.string.school_link_managed), color = p.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
         }
         if (changes.added > 0) PendingLine(pluralStringResource(R.plurals.school_pending_added, changes.added, changes.added))
         if (changes.updated > 0) PendingLine(pluralStringResource(R.plurals.school_pending_updated, changes.updated, changes.updated))
@@ -446,7 +435,6 @@ private fun PendingCard(
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
                 onClick = onApply, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = p.accent, contentColor = p.onAccent),
             ) { Text(stringResource(if (linking) R.string.school_link_apply else R.string.school_apply)) }
             TextButton(onClick = onDiscard, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) {
                 Text(stringResource(R.string.school_not_now))
@@ -457,82 +445,33 @@ private fun PendingCard(
 
 @Composable
 private fun PendingLine(text: String) {
-    Text(text, color = LocalPalette.current.ink, style = MaterialTheme.typography.bodyMedium)
+    Text(text, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium)
 }
 
-@Composable
-private fun NotificationsSection(
-    enabled: Boolean,
-    onEnabled: (Boolean) -> Unit,
-) {
-    val context = LocalContext.current
-    var allowed by remember { mutableStateOf(context.notificationsAllowed()) }
-    var denied by remember { mutableStateOf(false) }
-    LifecycleResumeEffect(Unit) {
-        allowed = context.notificationsAllowed()
-        if (allowed) denied = false
-        onPauseOrDispose { }
-    }
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        allowed = context.notificationsAllowed()
-        if (granted && allowed) {
-            denied = false
-            onEnabled(true)
-        } else {
-            denied = true
-        }
-    }
-    val on = enabled && allowed
-
-    ToggleRow(
-        title = stringResource(R.string.school_notify_changes),
-        subtitle = null,
-        checked = on,
-    ) { enable ->
-        if (!enable) {
-            onEnabled(false)
-        } else if (context.needsNotificationPermission()
-        ) {
-            launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        } else if (!allowed) {
-            denied = true
-        } else {
-            onEnabled(true)
-        }
-    }
-    if (denied || (enabled && !allowed)) {
-        Notice(
-            stringResource(R.string.school_notifications_blocked),
-            action = stringResource(R.string.school_open_android_settings),
-            onAction = { context.openNotificationSettings() },
-        )
-    }
-}
 
 @Composable
 private fun DisconnectDialog(hasImportedEvents: Boolean, onDismiss: () -> Unit, onConfirm: (Boolean) -> Unit) {
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     var remove by rememberSaveable { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = p.surface,
-        title = { Text(stringResource(R.string.school_disconnect_title), color = p.ink) },
+        title = { Text(stringResource(R.string.school_disconnect_title), color = p.onSurface) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(stringResource(R.string.school_disconnect_body), color = p.ink, style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.school_disconnect_body), color = p.onSurface, style = MaterialTheme.typography.bodyMedium)
                 if (hasImportedEvents) {
                     Row(
                         Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(remove, role = Role.Checkbox) { remove = it },
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Checkbox(checked = remove, onCheckedChange = null, colors = checkColors())
+                        Checkbox(checked = remove, onCheckedChange = null)
                         Spacer(Modifier.width(12.dp))
                         Text(
                             stringResource(R.string.school_disconnect_remove),
-                            Modifier.weight(1f), color = p.ink, style = MaterialTheme.typography.bodyMedium,
+                            Modifier.weight(1f), color = p.onSurface, style = MaterialTheme.typography.bodyMedium,
                         )
                     }
-                    if (remove) Text(stringResource(R.string.school_disconnect_remove_note), color = p.muted, style = MaterialTheme.typography.bodySmall)
+                    if (remove) Text(stringResource(R.string.school_disconnect_remove_note), color = p.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                 }
             }
         },
@@ -540,7 +479,7 @@ private fun DisconnectDialog(hasImportedEvents: Boolean, onDismiss: () -> Unit, 
             TextButton(onClick = { onConfirm(remove && hasImportedEvents) }, modifier = Modifier.heightIn(min = 48.dp)) {
                 Text(
                     stringResource(if (remove && hasImportedEvents) R.string.school_disconnect_remove_confirm else R.string.school_disconnect),
-                    color = if (remove && hasImportedEvents) p.danger else p.accent,
+                    color = if (remove && hasImportedEvents) p.error else p.primary,
                 )
             }
         },
@@ -552,24 +491,13 @@ private fun DisconnectDialog(hasImportedEvents: Boolean, onDismiss: () -> Unit, 
 
 @Composable
 private fun SchoolOption(label: String, selected: Boolean, onClick: () -> Unit) {
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     Row(
         Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(selected, role = Role.RadioButton, onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RadioButton(selected = selected, onClick = null, colors = RadioButtonDefaults.colors(selectedColor = p.accent, unselectedColor = p.faint))
+        RadioButton(selected = selected, onClick = null)
         Spacer(Modifier.width(8.dp))
-        Text(label, Modifier.weight(1f), color = p.ink, style = MaterialTheme.typography.bodyMedium)
+        Text(label, Modifier.weight(1f), color = p.onSurface, style = MaterialTheme.typography.bodyMedium)
     }
-}
-
-@Composable
-private fun schoolFieldColors() = LocalPalette.current.let { p ->
-    OutlinedTextFieldDefaults.colors(
-        focusedTextColor = p.ink, unfocusedTextColor = p.ink, disabledTextColor = p.muted,
-        focusedBorderColor = p.accent, unfocusedBorderColor = p.faint, disabledBorderColor = p.line,
-        focusedLabelColor = p.ink, unfocusedLabelColor = p.muted, disabledLabelColor = p.faint,
-        cursorColor = p.accent, errorBorderColor = p.danger, errorLabelColor = p.danger, errorCursorColor = p.danger,
-        focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, disabledContainerColor = Color.Transparent,
-    )
 }

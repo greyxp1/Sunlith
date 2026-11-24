@@ -1,5 +1,10 @@
-package io.github.sunsind.sunlith.school
+package io.github.sunsind.sunlith.school.sync
 
+import io.github.sunsind.sunlith.data.CalendarDates
+import io.github.sunsind.sunlith.school.SchoolAlert
+import io.github.sunsind.sunlith.school.SchoolError
+import io.github.sunsind.sunlith.school.messages.SchoolClassLift
+import io.github.sunsind.sunlith.school.messages.SchoolNoticeInterpreter
 import java.io.IOException
 import java.security.MessageDigest
 import java.time.DateTimeException
@@ -7,7 +12,6 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
-import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.format.ResolverStyle
 import java.time.temporal.ChronoUnit
@@ -108,7 +112,7 @@ internal object SchoolSource {
         val allDay = if (absence) j.optBoolean("JourneeComplete", false) else j.requiredBoolean("JourneeComplete")
         val start: Long
         val end: Long
-        if (allDay) { start = day.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(); end = day.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli() }
+        if (allDay) { start = CalendarDates.allDayMillis(day); end = CalendarDates.allDayMillis(day.plusDays(1)) }
         else {
             fun at(key: String): Long {
                 val raw = j.requiredText(key)

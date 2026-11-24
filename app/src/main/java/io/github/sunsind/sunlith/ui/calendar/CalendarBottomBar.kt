@@ -3,13 +3,11 @@ package io.github.sunsind.sunlith.ui.calendar
 import android.os.Build
 import android.view.HapticFeedbackConstants
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -43,7 +41,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -74,7 +71,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -96,16 +92,17 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.SettingsActivity
-import io.github.sunsind.sunlith.school.SchoolScheduleManager
-import io.github.sunsind.sunlith.school.SchoolMessagesManager
+import io.github.sunsind.sunlith.school.messages.SchoolMessagesManager
+import io.github.sunsind.sunlith.school.sync.SchoolScheduleManager
 import io.github.sunsind.sunlith.ui.Formats
-import io.github.sunsind.sunlith.ui.LocalPalette
 import io.github.sunsind.sunlith.ui.SEARCH_BAR_MARGIN
 import io.github.sunsind.sunlith.ui.Screen
 import io.github.sunsind.sunlith.ui.SunlithViewModel
 import io.github.sunsind.sunlith.ui.ViewMode
+import io.github.sunsind.sunlith.ui.card
 import java.time.YearMonth
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -130,8 +127,8 @@ internal fun TodayPill(direction: TodayDirection?, motion: Boolean, onClick: () 
     if (motion) {
         AnimatedVisibility(
             direction != null, modifier,
-            enter = fadeIn(tween(150)),
-            exit = fadeOut(tween(120)),
+            enter = fadeIn(MaterialTheme.motionScheme.fastEffectsSpec()) + scaleIn(MaterialTheme.motionScheme.fastSpatialSpec(), initialScale = 0.8f),
+            exit = fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()) + scaleOut(MaterialTheme.motionScheme.fastSpatialSpec(), targetScale = 0.8f),
         ) { TodayPillContent(arrow, onClick) }
     } else if (direction != null) {
         Box(modifier) { TodayPillContent(arrow, onClick) }
@@ -140,19 +137,20 @@ internal fun TodayPill(direction: TodayDirection?, motion: Boolean, onClick: () 
 
 @Composable
 private fun TodayPillContent(direction: TodayDirection, onClick: () -> Unit) {
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     val label = stringResource(R.string.action_today)
     val shape = CircleShape
     Box(
         Modifier.padding(start = 88.dp, end = 88.dp, bottom = 20.dp).minimumInteractiveComponentSize()
-            .shadow(3.dp, shape).clip(shape).background(p.surface).border(1.dp, p.line, shape)
+            .shadow(3.dp, shape).clip(shape).background(MaterialTheme.colorScheme.card)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
             .clickable(role = Role.Button, onClick = onClick)
             .clearAndSetSemantics { contentDescription = label; role = Role.Button; onClick { onClick(); true } }
             .padding(12.dp),
         contentAlignment = Alignment.Center,
     ) {
         Icon(todayIcon(direction),
-            contentDescription = null, tint = p.ink, modifier = Modifier.size(22.dp))
+            contentDescription = null, tint = p.onSurface, modifier = Modifier.size(22.dp))
     }
 }
 
@@ -181,13 +179,13 @@ internal fun BottomBar(
     val schoolState by school.state.collectAsStateWithLifecycle()
     val morph = vm.searchMorph
     var armedAxis by remember { mutableIntStateOf(0) }
-    val searchCatch by animateFloatAsState(if (armedAxis == 2) 1f else 0f, spring(stiffness = 520f))
-    val viewCatch by animateFloatAsState(if (armedAxis == 2) 0f else armedAxis.toFloat(), spring(stiffness = 700f))
+    val searchCatch by animateFloatAsState(if (armedAxis == 2) 1f else 0f, MaterialTheme.motionScheme.fastSpatialSpec())
+    val viewCatch by animateFloatAsState(if (armedAxis == 2) 0f else armedAxis.toFloat(), MaterialTheme.motionScheme.fastSpatialSpec())
     val stepView by rememberUpdatedState(onStepView)
     val dragView by rememberUpdatedState(onDragView)
     val haptics = LocalHapticFeedback.current
     val hostView = LocalView.current
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     val month by rememberShownMonth(vm, shift)
     val scope = rememberCoroutineScope()
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
@@ -230,9 +228,9 @@ internal fun BottomBar(
             onClick = tap(action),
             modifier = Modifier.semantics { if (unreadMail != null) stateDescription = unreadMail },
             interactionSource = remember { TapOnlyPress() },
-            colors = IconButtonDefaults.iconButtonColors(contentColor = p.ink),
+            colors = IconButtonDefaults.iconButtonColors(contentColor = p.onSurface),
         ) {
-            if (unread) BadgedBox(badge = { Badge(containerColor = p.accent) }) { Icon(icon, stringResource(label)) }
+            if (unread) BadgedBox(badge = { Badge(containerColor = p.primary) }) { Icon(icon, stringResource(label)) }
             else Icon(icon, stringResource(label))
         }
     }
@@ -356,17 +354,17 @@ internal fun BottomBar(
                 layout(placeable.width, placeable.height) { placeable.place(0, 0) }
             }
             .height(56.dp).shadow(3.dp, CircleShape).clip(CircleShape)
-            .background(p.surface)
-            .border(1.dp, p.line, CircleShape),
+            // The same surface as the app's cards and the search bar it becomes, outlined to stand off the calendar.
+            .background(MaterialTheme.colorScheme.card).border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
     ) {
         Row(Modifier.fillMaxHeight().graphicsLayer { alpha = 1f - searchLabelAmount() }.padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Text(buildAnnotatedString {
                     append(f.shortMonth(month))
-                    withStyle(SpanStyle(color = p.muted, fontWeight = FontWeight.Normal, fontSize = 0.72.em)) { append(" " + month.year) }
+                    withStyle(SpanStyle(color = p.onSurfaceVariant, fontWeight = FontWeight.Normal, fontSize = 0.72.em)) { append(" " + month.year) }
                 },
                 Modifier.weight(1f, fill = false).fillMaxHeight().clip(CircleShape)
-                    .calendarTap(p.ink, onClickLabel = stringResource(R.string.action_jump_to_date), onClick = tap(onTitle))
+                    .calendarTap(p.onSurface, onClickLabel = stringResource(R.string.action_jump_to_date), onClick = tap(onTitle))
                     .semantics {
                         heading()
                         contentDescription = f.monthYear(month)
@@ -382,7 +380,7 @@ internal fun BottomBar(
                         }
                     }
                     .wrapContentHeight().padding(horizontal = 12.dp),
-                color = p.ink, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                color = p.onSurface, style = MaterialTheme.typography.titleMediumEmphasized, maxLines = 1, overflow = TextOverflow.Ellipsis)
             ActionIcon(Icons.Outlined.Checklist, R.string.todo_title, action = vm::openTodos)
             if (schoolState.connected) {
                 val inbox by remember(context) { SchoolMessagesManager.get(context).inbox.state }.collectAsStateWithLifecycle()
@@ -393,10 +391,10 @@ internal fun BottomBar(
             ActionIcon(Icons.Outlined.SettingsIcon, R.string.title_settings) { SettingsActivity.open(context) }
         }
         if (rising) Box(Modifier.matchParentSize().graphicsLayer { alpha = searchLabelAmount() }.clearAndSetSemantics { }) {
-            val query = vm.searchQuery
+            val query = vm.search.query
             Text(query.ifBlank { stringResource(R.string.search_hint) },
                 Modifier.align(Alignment.Center).padding(horizontal = if (query.isBlank()) 20.dp else 52.dp),
-                color = if (query.isBlank()) p.faint else p.ink, style = MaterialTheme.typography.bodyLarge,
+                color = if (query.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant else p.onSurface, style = MaterialTheme.typography.bodyLarge,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
@@ -445,43 +443,6 @@ internal class PillGestureLatch(
 // The pill resists at first, then follows the remaining distance directly once it catches.
 internal fun searchPullDistance(distance: Float, activation: Float): Float =
     distance.coerceAtMost(activation) * 0.42f + (distance - activation).coerceAtLeast(0f)
-
-/** How far the toolbar has risen into the search bar, shared by the toolbar, the calendar backdrop and search itself. */
-@Stable
-class SearchMorph {
-    // Finishes within a pixel of either end. The default threshold stops 1% short, a visible jump over the whole climb.
-    private val rise = Animatable(0f, visibilityThreshold = 0.0005f)
-    private class Pull(val position: Float, val catchOffset: () -> Float)
-    private var pull by mutableStateOf<Pull?>(null)
-    val progress: Float get() = (pull?.let { it.position + it.catchOffset() } ?: rise.value).coerceIn(0f, 1f)
-
-    fun pullTo(position: Float, catchOffset: () -> Float) {
-        pull = Pull(position, catchOffset)
-    }
-
-    // Commit and cancel start from the frame the user released, before the latch springs back.
-    fun freezePull() {
-        if (pull != null) pullTo(progress) { 0f }
-    }
-
-    suspend fun settle(target: Float, motion: Boolean = true) {
-        val held = pull
-        if (held != null) {
-            rise.snapTo(progress)
-            if (pull !== held) return
-            pull = null
-        }
-        if (motion) rise.animateTo(target, Glide) else rise.snapTo(target)
-    }
-
-    /** Pixels the toolbar travels from rest to the search bar, so search can follow a finger pulling it back down. */
-    var climb = 1f
-
-    companion object {
-        /** A quick glide that settles without overshooting, so the toolbar never looks caught at either end. */
-        val Glide = spring(stiffness = Spring.StiffnessMediumLow, visibilityThreshold = 0.0005f)
-    }
-}
 
 /** Room the floating toolbar takes above the gesture bar, which views leave free so nothing stays hidden under it. */
 internal val TOOLBAR_CLEARANCE = 80.dp

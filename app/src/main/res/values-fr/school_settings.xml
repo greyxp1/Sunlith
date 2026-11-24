@@ -60,8 +60,6 @@
     <string name="school_apply">Appliquer</string>
     <string name="school_link_apply">Lier les cours</string>
 
-    <string name="school_notify_changes">Me notifier des changements</string>
-    <string name="school_notifications_blocked">Les notifications sont désactivées pour cette app.</string>
     <string name="school_alert_class_times">Changements d\'heure</string>
     <string name="school_alert_rooms">Changements de local</string>
     <string name="school_alert_teachers">Changements d\'enseignant</string>

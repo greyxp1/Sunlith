@@ -1,8 +1,24 @@
-package io.github.sunsind.sunlith.school
+package io.github.sunsind.sunlith.school.messages
 
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
+import io.github.sunsind.sunlith.school.SCHOOL_JOB_RETRY_DELAY
+import io.github.sunsind.sunlith.school.SchoolError
+import io.github.sunsind.sunlith.school.portal.SchoolClassicPortal
+import io.github.sunsind.sunlith.school.portal.SchoolLogin
+import io.github.sunsind.sunlith.school.portal.SchoolPortalClient
+import io.github.sunsind.sunlith.school.sync.SchoolFailure
+import io.github.sunsind.sunlith.school.sync.SchoolItem
+import io.github.sunsind.sunlith.school.sync.SchoolNotifications
+import io.github.sunsind.sunlith.school.sync.SchoolRecord
+import io.github.sunsind.sunlith.school.sync.SchoolScheduleManager
+import io.github.sunsind.sunlith.school.sync.SchoolSecureFile
+import io.github.sunsind.sunlith.school.sync.SchoolStore
+import io.github.sunsind.sunlith.school.sync.SchoolTerm
+import io.github.sunsind.sunlith.school.sync.schoolError
+import io.github.sunsind.sunlith.school.sync.schoolHash
+import io.github.sunsind.sunlith.school.sync.schoolRequire
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.concurrent.atomic.AtomicLong

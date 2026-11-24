@@ -1,4 +1,4 @@
-package io.github.sunsind.sunlith.school
+package io.github.sunsind.sunlith.school.sync
 
 import android.app.job.JobInfo
 import android.app.job.JobScheduler
@@ -6,6 +6,15 @@ import android.content.ComponentName
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
+import io.github.sunsind.sunlith.school.SCHOOL_JOB_RETRY_DELAY
+import io.github.sunsind.sunlith.school.SchoolError
+import io.github.sunsind.sunlith.school.SchoolScheduleState
+import io.github.sunsind.sunlith.school.SchoolSyncJobService
+import io.github.sunsind.sunlith.school.messages.SchoolMessagesManager
+import io.github.sunsind.sunlith.school.messages.SchoolNoticeEvents
+import io.github.sunsind.sunlith.school.messages.SchoolNoticeInterpreter
+import io.github.sunsind.sunlith.school.portal.SchoolPortalClient
+import io.github.sunsind.sunlith.school.portal.isMontmorencyPortal
 import io.github.sunsind.sunlith.system.AppRefresh
 import io.github.sunsind.sunlith.system.hasCalendarAccess
 import java.time.LocalDate
@@ -20,6 +29,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -32,7 +42,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.async
 
 class SchoolScheduleManager private constructor(private val context: Context) {
     private val notices = SchoolMessagesManager.get(context)
@@ -47,6 +56,11 @@ class SchoolScheduleManager private constructor(private val context: Context) {
     private val notifier = SchoolNotifications(context)
     private val mutableState = MutableStateFlow(SchoolScheduleState())
     val state: StateFlow<SchoolScheduleState> = mutableState.asStateFlow()
+
+    suspend fun isConnected(): Boolean {
+        ready.await()
+        return state.value.connected
+    }
     private var record: SchoolRecord? = null
     private var pending: SchoolFeed? = null
     private var pendingPlan: SchoolJournal? = null

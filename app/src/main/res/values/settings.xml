@@ -2,4 +2,9 @@
     <string name="settings_theme">Theme</string>
     <string name="settings_widget_shared">Applies to all Sunlith widgets</string>
     <string name="settings_version">Version</string>
+    <string name="settings_notifications">Notifications</string>
+    <string name="notifications_school">School alerts</string>
+    <string name="notifications_school_sub">Schedule changes, college notices, Col.NET mail and connection problems</string>
+    <string name="notifications_blocked">Android is blocking notifications from Sunlith. Allow them in Android notification settings.</string>
+    <string name="notifications_android_settings">Android notification settings</string>
 </resources>

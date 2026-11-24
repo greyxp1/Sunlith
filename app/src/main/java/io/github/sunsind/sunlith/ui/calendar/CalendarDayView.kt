@@ -18,14 +18,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -66,7 +65,6 @@ import io.github.sunsind.sunlith.data.CalendarEvent
 import io.github.sunsind.sunlith.data.key
 import io.github.sunsind.sunlith.data.span
 import io.github.sunsind.sunlith.ui.Formats
-import io.github.sunsind.sunlith.ui.LocalPalette
 import io.github.sunsind.sunlith.ui.Screen
 import io.github.sunsind.sunlith.ui.SunlithViewModel
 import io.github.sunsind.sunlith.ui.ViewMode
@@ -83,7 +81,7 @@ private const val GRID_ROWS = 6
 @Composable
 internal fun DayBody(c: CalendarContext, modifier: Modifier, dayReturn: TodaySlide) {
     val vm = c.vm
-    val background = LocalPalette.current.background
+    val background = MaterialTheme.colorScheme.background
     var shown by remember { mutableStateOf(vm.timelineStartFor(ViewMode.Day)?.takeUnless { vm.calendarExpanded } ?: vm.selectedDateFor(ViewMode.Day)) }
     val expanded = vm.calendarExpanded
     if (vm.viewMode == ViewMode.Day) {
@@ -182,7 +180,7 @@ internal fun DayBody(c: CalendarContext, modifier: Modifier, dayReturn: TodaySli
                         animatePeriodChanges = !dayReturn.isRunning, { progress }, rowPx, selectDate)
                 }
                 Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 1.dp).width(22.dp).height(2.dp)
-                    .background(LocalPalette.current.faint.copy(alpha = 0.7f), CircleShape))
+                    .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.7f), CircleShape))
             }
         }
         CompositionLocalProvider(LocalAgendaMorph provides morph) {
@@ -307,7 +305,7 @@ private fun DayCards(c: CalendarContext, day: LocalDate, active: Boolean) {
     val vm = c.vm
     if (!vm.coversRange(day, day, ViewMode.Day)) {
         if (active && vm.loadError == null) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(Modifier.size(24.dp), color = LocalPalette.current.muted, strokeWidth = 2.dp)
+            LoadingIndicator()
         }
         return
     }
@@ -365,11 +363,11 @@ internal fun AgendaEventList(
     contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
     emptyLabel: String? = null, focusedEvent: String? = null, motion: Boolean = false,
 ) {
-    val palette = LocalPalette.current
+    val palette = MaterialTheme.colorScheme
     LazyColumn(modifier, state = state, contentPadding = contentPadding, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (events.isEmpty()) item(key = "empty") {
             Text(emptyLabel ?: stringResource(R.string.no_events),
-                Modifier.fillMaxWidth().padding(vertical = 20.dp), color = palette.muted,
+                Modifier.fillMaxWidth().padding(vertical = 20.dp), color = palette.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
         }
         items(events, key = { it.key() }) { event ->

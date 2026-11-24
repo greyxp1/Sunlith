@@ -15,6 +15,8 @@ import io.github.sunsind.sunlith.data.IcsTransfer
 import io.github.sunsind.sunlith.data.StoredEvent
 import io.github.sunsind.sunlith.system.AppRefresh
 import io.github.sunsind.sunlith.system.SettingsStore
+import io.github.sunsind.sunlith.system.hasCalendarAccess
+import io.github.sunsind.sunlith.system.hasPermission
 import io.github.sunsind.sunlith.system.visibleCalendarIds
 import java.io.ByteArrayInputStream
 import java.time.Instant
@@ -26,8 +28,6 @@ import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Base64
 import java.util.Locale
-import io.github.sunsind.sunlith.system.hasCalendarAccess
-import io.github.sunsind.sunlith.system.hasPermission
 
 /**
  * Tool handlers for the direct phone link. Inputs mirror integrations/mcp/src/device-validation.js.
@@ -364,9 +364,8 @@ internal class DeviceLinkTools(context: Context) {
     private fun checkReminders(calendarId: Long, minutes: List<Int>) {
         if (minutes.isEmpty()) return
         val policy = repository.reminderPolicy(calendarId)
-        if (!policy.alertsAllowed) throw DeviceLinkError.badRequest("This calendar does not support on-device reminders.")
-        if (minutes.size > policy.maximumCount) throw DeviceLinkError.badRequest("This calendar allows at most ${policy.maximumCount} reminders per event.")
-        if (minutes.any { it > policy.maximumMinutes }) throw DeviceLinkError.badRequest("This calendar supports reminders up to ${policy.maximumMinutes} minutes before an event.")
+        val problem = policy.alertProblem(minutes) ?: policy.countProblem(minutes) ?: policy.timeProblem(minutes)
+        if (problem != null) throw DeviceLinkError.badRequest(problem)
     }
 
     private fun validate(draft: EventDraft) {

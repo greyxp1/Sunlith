@@ -2,6 +2,8 @@ package io.github.sunsind.sunlith.ui
 
 import android.os.Build
 import android.view.HapticFeedbackConstants
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -37,6 +39,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -80,6 +83,7 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.data.CalendarEvent
+import io.github.sunsind.sunlith.data.TodoMarker
 import io.github.sunsind.sunlith.data.key
 import io.github.sunsind.sunlith.data.span
 import io.github.sunsind.sunlith.ui.calendar.CalendarEventCard
@@ -88,11 +92,14 @@ import io.github.sunsind.sunlith.ui.calendar.canceled
 import io.github.sunsind.sunlith.ui.calendar.searchPullDistance
 import java.time.LocalDate
 import java.time.ZoneId
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 @Composable
 fun SearchScreen(vm: SunlithViewModel, active: Boolean) {
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     val f = rememberFormats()
     val focus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
@@ -100,9 +107,9 @@ fun SearchScreen(vm: SunlithViewModel, active: Boolean) {
     val keyboard = LocalSoftwareKeyboardController.current
     val zone = ZoneId.systemDefault()
     val today = LocalDate.now()
-    val groups = remember(vm.searchResults) {
-        val upcoming = vm.searchResults.filter { !it.span(zone).last.isBefore(today) }.sortedBy { it.startMillis }
-        val past = vm.searchResults.filter { it.span(zone).last.isBefore(today) }.sortedByDescending { it.startMillis }
+    val groups = remember(vm.search.results) {
+        val upcoming = vm.search.results.filter { !it.span(zone).last.isBefore(today) }.sortedBy { it.startMillis }
+        val past = vm.search.results.filter { it.span(zone).last.isBefore(today) }.sortedByDescending { it.startMillis }
         upcoming to past
     }
 
@@ -116,7 +123,7 @@ fun SearchScreen(vm: SunlithViewModel, active: Boolean) {
     val retreat = with(LocalDensity.current) { 26.dp.toPx() }
     val catchDistance = with(LocalDensity.current) { 24.dp.toPx() }
     var latched by remember { mutableStateOf(false) }
-    val catchProgress by animateFloatAsState(if (latched) 1f else 0f, spring(stiffness = 520f))
+    val catchProgress by animateFloatAsState(if (latched) 1f else 0f, MaterialTheme.motionScheme.fastSpatialSpec())
     val pull = remember(vm, keyboard, haptics, hostView, activation, retreat) {
         object : NestedScrollConnection {
             var pulled = 0f
@@ -197,20 +204,21 @@ fun SearchScreen(vm: SunlithViewModel, active: Boolean) {
                 }
             }.graphicsLayer { alpha = if (opened) 1f else 0f }) {
                 // The same pill as the calendar's toolbar, which grows into this bar when it is swiped up.
-                Box(Modifier.padding(SEARCH_BAR_MARGIN).fillMaxWidth().height(56.dp).clip(CircleShape).background(p.surface).border(1.dp, p.line, CircleShape)) {
+                Box(Modifier.padding(SEARCH_BAR_MARGIN).fillMaxWidth().height(56.dp).clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.card).border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)) {
                     BasicTextField(
-                        value = vm.searchQuery, onValueChange = vm::updateSearch,
-                        modifier = Modifier.fillMaxSize().padding(horizontal = if (vm.searchQuery.isEmpty()) 20.dp else 52.dp)
+                        value = vm.search.query, onValueChange = vm.search::update,
+                        modifier = Modifier.fillMaxSize().padding(horizontal = if (vm.search.query.isEmpty()) 20.dp else 52.dp)
                             .focusRequester(focus).semantics { contentDescription = searchLabel },
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = p.ink, textAlign = if (vm.searchQuery.isEmpty()) TextAlign.Start else TextAlign.Center),
-                        cursorBrush = SolidColor(p.accent), singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = p.onSurface, textAlign = if (vm.search.query.isEmpty()) TextAlign.Start else TextAlign.Center),
+                        cursorBrush = SolidColor(p.primary), singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
                         decorationBox = { field ->
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                if (vm.searchQuery.isEmpty()) {
+                                if (vm.search.query.isEmpty()) {
                                     Box {
-                                        Text(searchLabel, color = p.faint, style = MaterialTheme.typography.bodyLarge,
+                                        Text(searchLabel, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge,
                                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         Box(Modifier.matchParentSize(), contentAlignment = Alignment.CenterStart) { field() }
                                     }
@@ -218,9 +226,9 @@ fun SearchScreen(vm: SunlithViewModel, active: Boolean) {
                             }
                         },
                     )
-                    if (vm.searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { vm.updateSearch("") }, Modifier.align(Alignment.CenterEnd).padding(end = 4.dp)) {
-                            Icon(Icons.Outlined.Close, stringResource(R.string.action_clear), tint = p.muted)
+                    if (vm.search.query.isNotEmpty()) {
+                        IconButton(onClick = { vm.search.update("") }, Modifier.align(Alignment.CenterEnd).padding(end = 4.dp)) {
+                            Icon(Icons.Outlined.Close, stringResource(R.string.action_clear), tint = p.onSurfaceVariant)
                         }
                     }
                 }
@@ -249,10 +257,10 @@ fun SearchScreen(vm: SunlithViewModel, active: Boolean) {
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             when {
-                vm.searchQuery.isBlank() -> {}
+                vm.search.query.isBlank() -> {}
                 // Loading no longer draws a line under the search field. Results already shown stay while it runs.
-                vm.searchLoading && vm.searchResults.isEmpty() -> item(key = "loading") { ListLoading() }
-                vm.searchResults.isEmpty() -> item { Hint(stringResource(R.string.search_none)) }
+                vm.search.loading && vm.search.results.isEmpty() -> item(key = "loading") { ListLoading() }
+                vm.search.results.isEmpty() -> item { Hint(stringResource(R.string.search_none)) }
             }
             results(groups.first, null, f, vm)
             results(groups.second, R.string.search_past, f, vm)
@@ -262,12 +270,12 @@ fun SearchScreen(vm: SunlithViewModel, active: Boolean) {
 
 private fun androidx.compose.foundation.lazy.LazyListScope.results(events: List<CalendarEvent>, header: Int?, f: Formats, vm: SunlithViewModel) {
     if (events.isEmpty()) return
-    if (header != null) item(key = "h-$header") { SectionTitle(stringResource(header), Modifier.padding(start = 0.dp)) }
+    if (header != null) item(key = "h-$header") { SectionTitle(stringResource(header), inset = 16.dp) }
     items(events, key = { "${header ?: 0}-" + it.key() }) { e ->
         val day = e.span(ZoneId.systemDefault()).first
         Column {
             Text(
-                f.dayShortWithYear(day), color = LocalPalette.current.muted, style = MaterialTheme.typography.labelLarge,
+                f.dayShortWithYear(day), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 4.dp).semantics { heading() },
             )
             CalendarEventCard(e, day, f, onClick = { vm.open(Screen.Details(e)) })
@@ -277,8 +285,110 @@ private fun androidx.compose.foundation.lazy.LazyListScope.results(events: List<
 
 @Composable
 private fun Hint(text: String) {
-    Text(text, Modifier.fillMaxWidth().padding(16.dp), color = LocalPalette.current.muted, style = MaterialTheme.typography.bodyMedium)
+    Text(text, Modifier.fillMaxWidth().padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
 }
 
 /** Space around the search bar, which the calendar's toolbar grows into when swiped up. */
 internal val SEARCH_BAR_MARGIN = 8.dp
+
+/** Events from a year back to two years ahead, loaded by [loadPool] once per search and filtered as the query changes. */
+class EventSearch internal constructor(
+    private val scope: CoroutineScope,
+    private val canLoad: () -> Boolean,
+    private val onLoaded: (List<CalendarEvent>) -> Unit,
+    private val onError: (Exception) -> Unit,
+    private val loadPool: suspend () -> List<CalendarEvent>,
+) {
+    var query by mutableStateOf(""); private set
+    var results by mutableStateOf(emptyList<CalendarEvent>()); private set
+    var loading by mutableStateOf(false); private set
+    private var pool: List<CalendarEvent>? = null
+    private var job: Job? = null
+    private var generation = 0L
+
+    fun clear() {
+        generation++
+        job?.cancel()
+        job = null
+        pool = null
+        results = emptyList()
+        loading = false
+    }
+
+    /** Rereads the events, or with [force] off only when no read is already under way. */
+    fun load(force: Boolean) {
+        if (!canLoad()) {
+            clear()
+            return
+        }
+        if (!force && job?.isActive == true) return
+        val current = ++generation
+        job?.cancel()
+        loading = true
+        job = scope.launch {
+            try {
+                val events = loadPool()
+                if (current != generation) return@launch
+                onLoaded(events)
+                pool = events
+                filter()
+            } catch (c: CancellationException) {
+                throw c
+            } catch (e: Exception) {
+                if (current == generation) onError(e)
+            } finally {
+                if (current == generation) loading = false
+            }
+        }
+    }
+
+    fun update(query: String) {
+        this.query = query
+        if (pool == null) load(force = false) else filter()
+    }
+
+    private fun filter() {
+        val terms = query.trim().lowercase().split(Regex("\\s+")).filter(String::isNotEmpty)
+        results = if (terms.isEmpty()) emptyList() else pool.orEmpty().filter { e ->
+            val hay = "${e.title}\n${e.location}\n${TodoMarker.strip(e.description)}\n${e.calendarName}".lowercase()
+            terms.all { it in hay }
+        }.take(400)
+    }
+}
+
+/** How far the toolbar has risen into the search bar, shared by the toolbar, the calendar backdrop and search itself. */
+@Stable
+class SearchMorph {
+    // Finishes within a pixel of either end. The default threshold stops 1% short, a visible jump over the whole climb.
+    private val rise = Animatable(0f, visibilityThreshold = 0.0005f)
+    private class Pull(val position: Float, val catchOffset: () -> Float)
+    private var pull by mutableStateOf<Pull?>(null)
+    val progress: Float get() = (pull?.let { it.position + it.catchOffset() } ?: rise.value).coerceIn(0f, 1f)
+
+    fun pullTo(position: Float, catchOffset: () -> Float) {
+        pull = Pull(position, catchOffset)
+    }
+
+    // Commit and cancel start from the frame the user released, before the latch springs back.
+    fun freezePull() {
+        if (pull != null) pullTo(progress) { 0f }
+    }
+
+    suspend fun settle(target: Float, motion: Boolean = true) {
+        val held = pull
+        if (held != null) {
+            rise.snapTo(progress)
+            if (pull !== held) return
+            pull = null
+        }
+        if (motion) rise.animateTo(target, Glide) else rise.snapTo(target)
+    }
+
+    /** Pixels the toolbar travels from rest to the search bar, so search can follow a finger pulling it back down. */
+    var climb = 1f
+
+    companion object {
+        /** A quick glide that settles without overshooting, so the toolbar never looks caught at either end. */
+        val Glide = spring(stiffness = Spring.StiffnessMediumLow, visibilityThreshold = 0.0005f)
+    }
+}

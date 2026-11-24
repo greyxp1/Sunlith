@@ -2,13 +2,14 @@ package io.github.sunsind.sunlith.school
 
 import android.app.job.JobParameters
 import android.app.job.JobService
+import io.github.sunsind.sunlith.school.sync.SchoolScheduleManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 internal const val SCHOOL_JOB_RETRY_DELAY = 45_000L
 

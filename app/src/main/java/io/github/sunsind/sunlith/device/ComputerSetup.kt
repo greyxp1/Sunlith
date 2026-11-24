@@ -6,12 +6,15 @@ import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ToggleButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -20,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.github.sunsind.sunlith.R
 import java.io.File
@@ -82,17 +86,8 @@ internal fun ComputerSetupDialog(onShare: (() -> Unit)?, onDismiss: () -> Unit) 
         title = { Text(title) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(!windows, { windows = false }, label = { Text("macOS / Linux") })
-                    FilterChip(windows, { windows = true }, label = { Text("Windows") })
-                }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DesktopClient.entries.forEach { option ->
-                        FilterChip(client == option, { client = option }, label = {
-                            Text(option.label ?: stringResource(R.string.connection_setup_other_client))
-                        })
-                    }
-                }
+                ConnectedChoice(listOf(false, true), windows, { if (it) "Windows" else "macOS / Linux" }) { windows = it }
+                ConnectedChoice(DesktopClient.entries, client, { it.label ?: stringResource(R.string.connection_setup_other_client) }) { client = it }
                 Text(stringResource(if (windows) R.string.connection_setup_windows else R.string.connection_setup_terminal))
                 Text(stringResource(if (client == DesktopClient.Other) R.string.connection_setup_json else R.string.connection_setup_test))
             }
@@ -104,4 +99,26 @@ internal fun ComputerSetupDialog(onShare: (() -> Unit)?, onDismiss: () -> Unit) 
             { TextButton(share) { Text(stringResource(R.string.connection_setup_connect_computer)) } }
         },
     )
+}
+
+/** One choice among a few, as Material's connected button group that wraps at large text sizes. */
+@Composable
+private fun <T> ConnectedChoice(options: List<T>, selected: T, label: @Composable (T) -> String, onSelect: (T) -> Unit) {
+    FlowRow(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        options.forEachIndexed { index, option ->
+            ToggleButton(
+                checked = option == selected, onCheckedChange = { onSelect(option) },
+                shapes = when (index) {
+                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                    options.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                },
+                contentPadding = PaddingValues(horizontal = 12.dp),
+            ) { Text(label(option), textAlign = TextAlign.Center) }
+        }
+    }
 }

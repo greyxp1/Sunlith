@@ -1,6 +1,15 @@
-package io.github.sunsind.sunlith.school
+package io.github.sunsind.sunlith.school.portal
 
 import android.content.Context
+import io.github.sunsind.sunlith.school.SchoolError
+import io.github.sunsind.sunlith.school.messages.SchoolAdminDetail
+import io.github.sunsind.sunlith.school.messages.SchoolAdminParser
+import io.github.sunsind.sunlith.school.messages.SchoolAdminRow
+import io.github.sunsind.sunlith.school.messages.SchoolAdminStatus
+import io.github.sunsind.sunlith.school.messages.SchoolInboxNext
+import io.github.sunsind.sunlith.school.messages.adminStatus
+import io.github.sunsind.sunlith.school.sync.SchoolFailure
+import io.github.sunsind.sunlith.school.sync.schoolRequire
 import java.io.IOException
 import java.net.URI
 import java.net.URLEncoder

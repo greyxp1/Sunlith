@@ -1,10 +1,11 @@
-package io.github.sunsind.sunlith.school
+package io.github.sunsind.sunlith.school.sync
 
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.AtomicFile
 import androidx.core.util.writeBytes
+import io.github.sunsind.sunlith.school.SchoolError
 import java.io.File
 import java.security.KeyStore
 import javax.crypto.Cipher

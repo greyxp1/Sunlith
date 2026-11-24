@@ -155,8 +155,7 @@
     <string name="theme_light">Light</string>
     <string name="theme_system">Follow system</string>
     <string name="settings_local_sub">Stays on this phone and does not sync to any account.</string>
-    <string name="settings_reminders_toggle">Reminder notifications</string>
-    <string name="settings_reminders_blocked">Notifications are blocked for Sunlith. Turn this on to allow them.</string>
+    <string name="settings_reminders_toggle">Event reminders</string>
     <string name="settings_import">Import .ics file</string>
     <string name="settings_export">Export .ics file</string>
     <string name="settings_exporting">Exporting…</string>

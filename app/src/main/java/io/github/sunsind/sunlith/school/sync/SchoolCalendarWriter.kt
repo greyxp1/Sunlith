@@ -1,24 +1,28 @@
-package io.github.sunsind.sunlith.school
+package io.github.sunsind.sunlith.school.sync
 
 import android.content.ContentProviderOperation
 import android.content.ContentUris
 import android.content.Context
+import android.os.Parcel
 import android.provider.CalendarContract
 import android.provider.CalendarContract.Calendars
 import android.provider.CalendarContract.Events
-import android.os.Parcel
 import android.util.Log
 import io.github.sunsind.sunlith.R
+import io.github.sunsind.sunlith.data.CalendarRepository
 import io.github.sunsind.sunlith.data.assertRow
 import io.github.sunsind.sunlith.data.contentValues
 import io.github.sunsind.sunlith.data.values
-import io.github.sunsind.sunlith.data.CalendarRepository
+import io.github.sunsind.sunlith.school.SchoolChangeSummary
+import io.github.sunsind.sunlith.school.SchoolError
+import io.github.sunsind.sunlith.school.messages.SchoolClassLift
+import io.github.sunsind.sunlith.school.messages.SchoolNoticeInterpreter
 import io.github.sunsind.sunlith.system.SettingsStore
+import io.github.sunsind.sunlith.system.hasCalendarAccess
 import io.github.sunsind.sunlith.system.visibleCalendarIds
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
-import io.github.sunsind.sunlith.system.hasCalendarAccess
 
 // Linked rows retain their original provider values. Only matching imports lack Sunlith's ownership marker.
 internal val SchoolJournal.legacyLinkCount: Int

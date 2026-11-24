@@ -43,7 +43,6 @@ import androidx.compose.ui.unit.dp
 import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.data.CalendarEvent
 import io.github.sunsind.sunlith.ui.Formats
-import io.github.sunsind.sunlith.ui.LocalPalette
 import io.github.sunsind.sunlith.ui.weekDays
 import java.time.LocalDate
 import kotlinx.coroutines.flow.Flow
@@ -80,12 +79,12 @@ internal class TapOnlyPress : MutableInteractionSource {
 
 @Composable
 internal fun WeekdayLabels(f: Formats) {
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     val narrow = LocalDensity.current.fontScale > 1.3f
     Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp).clearAndSetSemantics { }) {
         weekDays.forEach { dow ->
             Text(
-                (if (narrow) f.weekdayNarrow(dow) else f.weekdayShort(dow)), Modifier.weight(1f), color = p.muted, style = MaterialTheme.typography.labelSmall,
+                (if (narrow) f.weekdayNarrow(dow) else f.weekdayShort(dow)), Modifier.weight(1f), color = p.onSurfaceVariant, style = MaterialTheme.typography.labelSmall,
                 textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Clip,
             )
         }
@@ -105,14 +104,14 @@ internal fun DayCell(
     measurer: TextMeasurer, modifier: Modifier, onSelect: (LocalDate) -> Unit,
     addEvent: Boolean, reveal: (() -> Float)? = null,
 ) {
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     val context = LocalContext.current
     val description = remember(day, isToday, events.size, f) { dayDescription(context, f, day, isToday, events.size) }
     val accents = events.take(3).map { eventAccent(it) }
     val circle = dayCircle()
     val clickLabel = if (addEvent) stringResource(R.string.action_add_event) else null
     val style = MaterialTheme.typography.bodyLarge.copy(
-        color = when { isSelected -> p.onAccent; inMonth -> p.ink; else -> p.faint },
+        color = when { isSelected -> p.onPrimary; inMonth -> p.onSurface; else -> p.outline },
         fontWeight = if (isToday || isSelected) FontWeight.SemiBold else FontWeight.Normal,
         textAlign = TextAlign.Center,
     )
@@ -129,12 +128,12 @@ internal fun DayCell(
                 val center = Offset(size.width / 2, 3.dp.toPx() + diameter / 2)
                 val text = measurer.measure(day.dayOfMonth.toString(), style, maxLines = 1, softWrap = false,
                     constraints = Constraints(maxWidth = diameter.toInt().coerceAtLeast(0)))
-                val dots = accents.map { if (inMonth) it else p.faint }
+                val dots = accents.map { if (inMonth) it else p.outline }
                 onDrawBehind {
                     // Fit the entire date and its dots into the space the row has earned.
                     scale(reveal?.invoke() ?: 1f, pivot = Offset(center.x, 0f)) {
-                        if (isSelected) drawCircle(p.accent, diameter / 2, center)
-                        else if (isToday) drawCircle(p.ink, diameter / 2 - 0.75.dp.toPx(), center, style = Stroke(1.5.dp.toPx()))
+                        if (isSelected) drawCircle(p.primary, diameter / 2, center)
+                        else if (isToday) drawCircle(p.onSurface, diameter / 2 - 0.75.dp.toPx(), center, style = Stroke(1.5.dp.toPx()))
                         drawText(text, topLeft = Offset(center.x - text.size.width / 2, center.y - text.size.height / 2))
                         val dotSize = 5.dp.toPx()
                         val gap = 3.dp.toPx()

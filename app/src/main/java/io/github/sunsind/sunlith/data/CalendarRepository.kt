@@ -9,19 +9,19 @@ import android.database.Cursor
 import android.net.Uri
 import android.os.Looper
 import android.provider.CalendarContract
-import android.provider.CalendarContract.Calendars
 import android.provider.CalendarContract.Attendees
+import android.provider.CalendarContract.Calendars
 import android.provider.CalendarContract.Events
 import android.provider.CalendarContract.Instances
 import android.provider.CalendarContract.Reminders
 import io.github.sunsind.sunlith.R
-import io.github.sunsind.sunlith.school.SchoolOwnership
-import io.github.sunsind.sunlith.school.SchoolCalendarPresentation
+import io.github.sunsind.sunlith.school.sync.SchoolCalendarPresentation
+import io.github.sunsind.sunlith.school.sync.SchoolOwnership
 import io.github.sunsind.sunlith.system.AppRefresh
+import io.github.sunsind.sunlith.system.hasPermission
 import java.time.ZoneId
 import java.util.TimeZone
 import java.util.UUID
-import io.github.sunsind.sunlith.system.hasPermission
 
 class CalendarRepository(context: Context) {
     private val context = context.applicationContext
@@ -239,11 +239,9 @@ class CalendarRepository(context: Context) {
         val remindersChanged = original == null || original.draft.reminderMinutes.distinct().sorted() != minutes
         val preservedReminders = if (remindersChanged) draft.id?.let(::preservedReminderCount) ?: 0 else 0
         val policy = if (remindersChanged) reminderPolicy(draft.calendarId) else null
-        if (remindersChanged) {
-            val limits = requireNotNull(policy)
-            require(minutes.size + preservedReminders <= limits.maximumCount) { "This calendar allows at most ${limits.maximumCount} reminders per event." }
-            require(minutes.isEmpty() || limits.alertsAllowed) { "This calendar does not support on-device reminders." }
-            require(minutes.all { it <= limits.maximumMinutes }) { "This calendar supports reminders up to ${limits.maximumMinutes} minutes before an event." }
+        if (policy != null) {
+            val problem = policy.countProblem(minutes, preservedReminders) ?: policy.alertProblem(minutes) ?: policy.timeProblem(minutes)
+            if (problem != null) throw IllegalArgumentException(problem)
         }
         val rule = draft.rrule?.takeIf(String::isNotBlank)
         val timingUnchanged = original != null && CalendarDates.timingUnchanged(original.draft, draft)

@@ -3,6 +3,7 @@ package io.github.sunsind.sunlith.ui.calendar
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,8 +37,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.sunsind.sunlith.ui.Formats
-import io.github.sunsind.sunlith.ui.LocalPalette
-import io.github.sunsind.sunlith.ui.SunlithPalette
+import io.github.sunsind.sunlith.ui.LocalDarkTheme
 import java.time.LocalDate
 import kotlin.math.ceil
 import kotlin.math.roundToInt
@@ -103,19 +103,20 @@ internal fun rememberTimeGutter(labels: List<AnnotatedString>, style: TextStyle,
 @Immutable
 internal class TimelineGridColors(val tile: Color, val today: Color, val now: Color)
 
-private fun timelineGridColors(p: SunlithPalette): TimelineGridColors {
-    val tile = lerp(p.background, p.line, if (p.dark) 0.55f else 0.6f)
+private fun timelineGridColors(p: ColorScheme, dark: Boolean): TimelineGridColors {
+    val tile = lerp(p.background, p.outlineVariant, if (dark) 0.55f else 0.6f)
     return TimelineGridColors(
         tile = tile,
-        today = lerp(tile, p.accent, if (p.dark) 0.16f else 0.1f),
-        now = p.accent,
+        today = lerp(tile, p.primary, if (dark) 0.16f else 0.1f),
+        now = p.primary,
     )
 }
 
 @Composable
 internal fun rememberTimelineGridColors(): TimelineGridColors {
-    val p = LocalPalette.current
-    return remember(p) { timelineGridColors(p) }
+    val p = MaterialTheme.colorScheme
+    val dark = LocalDarkTheme.current
+    return remember(p, dark) { timelineGridColors(p, dark) }
 }
 
 /**
@@ -149,12 +150,12 @@ internal fun HourRail(
     /** Pixels a label may extend past the top and bottom of the rail, into the edge room around the grid. */
     overhang: Int,
 ) {
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     val endPad = with(LocalDensity.current) { 6.dp.roundToPx() }
     val positions = (0..24).map { axis.minuteToY(it * 60) }
     Layout(
         content = {
-            labels.forEach { Text(it, color = p.muted, style = style, maxLines = 2, softWrap = false, textAlign = TextAlign.End) }
+            labels.forEach { Text(it, color = p.onSurfaceVariant, style = style, maxLines = 2, softWrap = false, textAlign = TextAlign.End) }
         },
         modifier = modifier.clearAndSetSemantics { },
     ) { measurables, constraints ->
@@ -178,15 +179,15 @@ internal fun HourRail(
 internal fun TimelineDayHeader(
     day: LocalDate, isToday: Boolean, count: Int, f: Formats, measurer: TextMeasurer, modifier: Modifier,
 ) {
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     val context = LocalContext.current
     val description = remember(day, isToday, count, f) { dayDescription(context, f, day, isToday, count) }
     val density = LocalDensity.current
     val typography = MaterialTheme.typography
     val circle = with(density) { maxOf(40.dp, typography.bodyLarge.fontSize.toDp() * 2.25f) }
     val weekday = f.weekdayShort(day.dayOfWeek)
-    val weekdayStyle = typography.labelSmall.copy(color = if (isToday) p.ink else p.muted)
-    val numberStyle = typography.bodyLarge.copy(color = if (isToday) p.onAccent else p.ink,
+    val weekdayStyle = typography.labelSmall.copy(color = if (isToday) p.onSurface else p.onSurfaceVariant)
+    val numberStyle = typography.bodyLarge.copy(color = if (isToday) p.onPrimary else p.onSurface,
         fontWeight = if (isToday) FontWeight.SemiBold else FontWeight.Normal)
     Box(
         modifier.heightIn(min = 48.dp).padding(horizontal = 1.dp)
@@ -202,7 +203,7 @@ internal fun TimelineDayHeader(
                 val center = Offset(size.width / 2, pad + label.size.height + pad + diameter / 2)
                 onDrawBehind {
                     drawText(label, topLeft = Offset((size.width - label.size.width) / 2, pad))
-                    if (isToday) drawCircle(p.accent, diameter / 2, center)
+                    if (isToday) drawCircle(p.primary, diameter / 2, center)
                     drawText(number, topLeft = center - Offset(number.size.width / 2f, number.size.height / 2f))
                 }
             },

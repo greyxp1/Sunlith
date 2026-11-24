@@ -1,7 +1,22 @@
-package io.github.sunsind.sunlith.school
+package io.github.sunsind.sunlith.school.messages
 
 import android.content.Context
 import android.os.SystemClock
+import io.github.sunsind.sunlith.school.SchoolError
+import io.github.sunsind.sunlith.school.portal.HtmlToken
+import io.github.sunsind.sunlith.school.portal.MAIL_IMAGE_EXTENSIONS
+import io.github.sunsind.sunlith.school.portal.MAIL_IMAGE_TYPES
+import io.github.sunsind.sunlith.school.portal.SchoolClassicPortal
+import io.github.sunsind.sunlith.school.portal.SchoolHtml
+import io.github.sunsind.sunlith.school.portal.SchoolHtmlPage
+import io.github.sunsind.sunlith.school.portal.SchoolPortalClient
+import io.github.sunsind.sunlith.school.sync.SchoolFailure
+import io.github.sunsind.sunlith.school.sync.SchoolNotifications
+import io.github.sunsind.sunlith.school.sync.SchoolRecord
+import io.github.sunsind.sunlith.school.sync.schoolError
+import io.github.sunsind.sunlith.school.sync.schoolHash
+import io.github.sunsind.sunlith.school.sync.schoolRequire
+import io.github.sunsind.sunlith.school.sync.text
 import java.net.URI
 import java.net.URLEncoder
 import java.time.LocalDateTime

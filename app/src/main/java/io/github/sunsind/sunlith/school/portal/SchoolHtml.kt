@@ -1,5 +1,7 @@
-package io.github.sunsind.sunlith.school
+package io.github.sunsind.sunlith.school.portal
 
+import io.github.sunsind.sunlith.school.sync.schoolRequire
+import io.github.sunsind.sunlith.school.sync.text
 import java.net.URI
 import java.text.Normalizer
 import java.util.Locale

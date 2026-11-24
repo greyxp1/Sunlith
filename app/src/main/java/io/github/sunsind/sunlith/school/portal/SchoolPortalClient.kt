@@ -1,13 +1,23 @@
-package io.github.sunsind.sunlith.school
+package io.github.sunsind.sunlith.school.portal
 
 import android.content.Context
+import io.github.sunsind.sunlith.school.SchoolError
+import io.github.sunsind.sunlith.school.sync.SchoolFailure
+import io.github.sunsind.sunlith.school.sync.SchoolFeed
+import io.github.sunsind.sunlith.school.sync.SchoolItem
+import io.github.sunsind.sunlith.school.sync.SchoolSource
+import io.github.sunsind.sunlith.school.sync.requiredBoolean
+import io.github.sunsind.sunlith.school.sync.requiredText
+import io.github.sunsind.sunlith.school.sync.schoolHash
+import io.github.sunsind.sunlith.school.sync.schoolRequire
+import io.github.sunsind.sunlith.school.sync.text
 import java.net.URI
 import java.net.URLEncoder
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Locale
-import kotlinx.coroutines.ensureActive
 import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.ensureActive
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener

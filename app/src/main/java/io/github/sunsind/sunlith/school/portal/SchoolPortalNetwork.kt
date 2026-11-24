@@ -1,4 +1,4 @@
-package io.github.sunsind.sunlith.school
+package io.github.sunsind.sunlith.school.portal
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -6,6 +6,9 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.util.Log
+import io.github.sunsind.sunlith.school.SchoolError
+import io.github.sunsind.sunlith.school.sync.SchoolFailure
+import io.github.sunsind.sunlith.school.sync.schoolRequire
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.SocketTimeoutException

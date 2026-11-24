@@ -1,5 +1,6 @@
-package io.github.sunsind.sunlith.school
+package io.github.sunsind.sunlith.school.messages
 
+import io.github.sunsind.sunlith.school.SchoolError
 data class SchoolPortalLink(val code: String, val description: String)
 
 /** The college's own Col.NET links. An empty [Loaded] list means the college publishes none, which is not an error. */

@@ -30,12 +30,16 @@ object ReminderNotifications {
     private const val DAY_MILLIS = 86_400_000L
     fun allowed(context: Context): Boolean = SettingsStore(context).remindersEnabled && context.notificationsAllowed()
 
+    fun registerChannel(context: Context): NotificationManager = context.getSystemService(NotificationManager::class.java).apply {
+        createNotificationChannel(NotificationChannel(CHANNEL, context.getString(R.string.notification_channel), NotificationManager.IMPORTANCE_HIGH)
+            .apply { description = context.getString(R.string.notification_channel_description) })
+    }
+
     fun post(context: Context, event: CalendarEvent, minutes: Int, repeat: Boolean = false): Boolean {
         if (!allowed(context)) return false
         val key = reminderKey(event.id, event.startMillis, minutes)
         if (!repeat && wasShown(context, key)) return false
-        val manager = context.getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel(CHANNEL, context.getString(R.string.notification_channel), NotificationManager.IMPORTANCE_HIGH).apply { description = context.getString(R.string.notification_channel_description) })
+        val manager = registerChannel(context)
         val id = key.hashCode()
         val open = PendingIntent.getActivity(context, id, Intent(context, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)

@@ -8,18 +8,13 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,12 +24,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
@@ -45,7 +42,7 @@ import io.github.sunsind.sunlith.system.AppUpdateState
 import io.github.sunsind.sunlith.system.AppUpdateViewModel
 import io.github.sunsind.sunlith.system.UpdateCommand
 import io.github.sunsind.sunlith.system.UpdateProblem
-import io.github.sunsind.sunlith.ui.LocalPalette
+import io.github.sunsind.sunlith.ui.GroupRow
 import java.io.File
 
 /** The About page's version row. Tapping it checks GitHub for a newer release, and nothing touches the network before that. */
@@ -77,7 +74,6 @@ fun AppUpdateSection(version: String) {
         }
     }
 
-    val p = LocalPalette.current
     val shown = state
     val working = shown == AppUpdateState.Checking || shown is AppUpdateState.Preparing
     val status = when (shown) {
@@ -92,30 +88,26 @@ fun AppUpdateSection(version: String) {
         is AppUpdateState.Installing -> stringResource(R.string.app_update_installing, shown.version)
         is AppUpdateState.Failed -> stringResource(problemText(shown.problem))
     }
-    Column(
-        Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(enabled = !working, role = Role.Button, onClick = vm::tap)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.settings_version), Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = p.ink)
-            Spacer(Modifier.width(12.dp))
-            Text(version, style = MaterialTheme.typography.bodyLarge, color = p.muted, maxLines = 1)
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(status, Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite }, style = MaterialTheme.typography.bodyMedium,
-                color = if (shown is AppUpdateState.Failed) p.danger else p.muted)
-            if (working) CircularProgressIndicator(Modifier.padding(start = 12.dp).size(16.dp), color = p.muted, strokeWidth = 2.dp)
-        }
-        if (shown is AppUpdateState.Downloading) {
-            val label = stringResource(R.string.app_update_progress)
-            LinearProgressIndicator(
-                progress = { shown.progress },
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp).semantics { contentDescription = label },
-                color = p.accent, trackColor = p.raised,
-            )
-        }
-    }
+    GroupRow(
+        Modifier.semantics { role = Role.Button }, onClick = vm::tap, enabled = !working,
+        trailing = { Text(version, maxLines = 1, style = MaterialTheme.typography.bodyLarge) },
+        supporting = {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(status, Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite },
+                        color = if (shown is AppUpdateState.Failed) MaterialTheme.colorScheme.error else Color.Unspecified)
+                    if (working) CircularProgressIndicator(Modifier.padding(start = 12.dp).size(16.dp), strokeWidth = 2.dp)
+                }
+                if (shown is AppUpdateState.Downloading) {
+                    val label = stringResource(R.string.app_update_progress)
+                    LinearWavyProgressIndicator(
+                        progress = { shown.progress },
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp).semantics { contentDescription = label },
+                    )
+                }
+            }
+        },
+    ) { Text(stringResource(R.string.settings_version)) }
 }
 
 private fun problemText(problem: UpdateProblem) = when (problem) {

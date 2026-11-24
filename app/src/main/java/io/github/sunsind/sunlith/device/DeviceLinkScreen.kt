@@ -13,20 +13,12 @@ import android.net.Uri
 import android.text.format.DateUtils
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
@@ -36,11 +28,8 @@ import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.RadioButtonDefaults
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -52,13 +41,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
@@ -66,15 +53,23 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import io.github.sunsind.sunlith.R
+import io.github.sunsind.sunlith.system.needsNotificationPermission
 import io.github.sunsind.sunlith.ui.ClickRow
-import io.github.sunsind.sunlith.ui.LocalPalette
-import io.github.sunsind.sunlith.ui.ScreenTopBar
+import io.github.sunsind.sunlith.ui.GroupItem
+import io.github.sunsind.sunlith.ui.GroupRow
+import io.github.sunsind.sunlith.ui.ListGroup
+import io.github.sunsind.sunlith.ui.PageScaffold
 import io.github.sunsind.sunlith.ui.SectionTitle
 import io.github.sunsind.sunlith.ui.SunlithViewModel
 import io.github.sunsind.sunlith.ui.ToggleRow
-import io.github.sunsind.sunlith.ui.SurfaceCard
-import io.github.sunsind.sunlith.ui.event.ColorDot
+import io.github.sunsind.sunlith.ui.plusBottom
+import io.github.sunsind.sunlith.ui.selectState
+import io.github.sunsind.sunlith.ui.settings.CalendarRow
+import io.github.sunsind.sunlith.ui.settings.accountNote
+import io.github.sunsind.sunlith.ui.settings.onDevice
 import io.github.sunsind.sunlith.ui.settings.openAppSettings
+import io.github.sunsind.sunlith.ui.settings.readOnly
+import io.github.sunsind.sunlith.ui.toggleState
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -83,12 +78,11 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import io.github.sunsind.sunlith.system.needsNotificationPermission
 
 @Composable
 internal fun DeviceLinkScreen(vm: SunlithViewModel) {
     val context = LocalContext.current
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     val scope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val connection by DeviceLink.state.collectAsStateWithLifecycle()
@@ -232,102 +226,93 @@ internal fun DeviceLinkScreen(vm: SunlithViewModel) {
         }
     }
 
-    Scaffold(containerColor = p.background, topBar = {
-        ScreenTopBar(stringResource(R.string.device_link_title))
-    }) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(bottom = 40.dp)) {
+    PageScaffold(stringResource(R.string.device_link_title)) { padding ->
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = padding.plusBottom(40.dp)) {
             if (paired == true) {
                 item {
-                    SurfaceCard(padding = PaddingValues(bottom = 4.dp)) {
-                        ToggleRow(
-                            stringResource(R.string.device_link_allow_access),
-                            subtitle = stringResource(if (connection.running) R.string.device_link_available else R.string.device_link_paused),
-                            checked = connection.running,
-                            enabled = !busy,
-                        ) { enabled ->
-                            if (enabled) enableAccess() else DeviceLink.stop(context)
+                    ListGroup {
+                        item {
+                            val last = lastRequest
+                            val status = stringResource(if (connection.running) R.string.device_link_available else R.string.device_link_paused)
+                            val contact = when {
+                                last != null -> stringResource(R.string.device_link_last_request, connectionDate(context, last))
+                                connection.running -> stringResource(R.string.device_link_no_contact)
+                                else -> null
+                            }
+                            ToggleRow(
+                                stringResource(R.string.device_link_allow_access),
+                                subtitle = listOfNotNull(status, contact).joinToString("\n"),
+                                checked = connection.running,
+                                enabled = !busy,
+                            ) { enabled ->
+                                if (enabled) enableAccess() else DeviceLink.stop(context)
+                            }
                         }
-                        val last = lastRequest
-                        if (connection.running || last != null) {
-                            Text(
-                                if (last == null) stringResource(R.string.device_link_no_contact)
-                                else stringResource(R.string.device_link_last_request, connectionDate(context, last)),
-                                Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
-                                color = p.muted, style = MaterialTheme.typography.bodySmall,
-                            )
+                        item {
+                            ClickRow(stringResource(R.string.connection_setup_command),
+                                stringResource(R.string.connection_setup_command_hint), enabled = !busy,
+                                icon = Icons.AutoMirrored.Outlined.KeyboardArrowRight) { setup = true }
+                        }
+                        item {
+                            ClickRow(stringResource(R.string.device_link_options),
+                                icon = if (details) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore) { details = !details }
+                        }
+                        if (details && host.isNotBlank()) item {
+                            val label = stringResource(R.string.device_link_address)
+                            ClickRow(label, host, icon = Icons.Outlined.ContentCopy) { copyComputerText(context, label, host) }
                         }
                     }
                 }
-                item {
-                    ClickRow(stringResource(R.string.connection_setup_command),
-                        stringResource(R.string.connection_setup_command_hint), enabled = !busy,
-                        icon = Icons.AutoMirrored.Outlined.KeyboardArrowRight) { setup = true }
-                }
-                item {
-                    ClickRow(stringResource(R.string.device_link_options),
-                        icon = if (details) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore) { details = !details }
-                }
-                if (details) {
-                    if (host.isNotBlank()) item {
-                        val label = stringResource(R.string.device_link_address)
-                        ClickRow(label, host, icon = Icons.Outlined.ContentCopy) { copyComputerText(context, label, host) }
-                    }
-                    item { SectionTitle(stringResource(R.string.device_link_access)) }
-                }
+                if (details) item { SectionTitle(stringResource(R.string.device_link_access)) }
             } else if (paired == false) {
                 item {
                     Text(stringResource(R.string.connection_setup_step1_body),
-                        Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = p.muted, style = MaterialTheme.typography.bodyMedium)
+                        Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = p.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
                 }
                 item { SectionTitle(stringResource(R.string.connection_setup_step2_title)) }
             }
-            if (paired == false || (paired == true && details)) items(vm.calendars.filter { paired == false || it.id in ids }, key = { it.id }) { calendar ->
-                Row(
-                    Modifier.fillMaxWidth().heightIn(min = 56.dp)
-                        .then(if (paired == false) Modifier.toggleable(calendar.id in ids, enabled = !busy, role = Role.Checkbox) {
-                            ids = if (it) ids + calendar.id else ids - calendar.id
-                        } else Modifier.semantics(mergeDescendants = true) {}).padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    ColorDot(calendar.color)
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(calendar.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        if (calendar.local || calendar.account != calendar.name) Text(
-                            if (calendar.local) stringResource(R.string.calendar_on_device) else calendar.account,
-                            color = p.muted, style = MaterialTheme.typography.bodySmall, maxLines = 2,
+            if (paired == false || (paired == true && details)) {
+                val shown = vm.calendars.filter { paired == false || it.id in ids }
+                val createLocal = paired == false && !vm.hasSunlithCalendar
+                val count = shown.size + if (createLocal) 1 else 0
+                itemsIndexed(shown, key = { _, calendar -> calendar.id }) { index, calendar ->
+                    val on = calendar.id in ids
+                    GroupItem(index, count) {
+                        CalendarRow(
+                            calendar, listOfNotNull(onDevice(calendar) ?: calendar.accountNote(), readOnly(calendar)),
+                            if (paired == false) Modifier.toggleState(on, Role.Checkbox) else Modifier.semantics(mergeDescendants = true) {},
+                            onClick = if (paired == false) { { ids = if (on) ids - calendar.id else ids + calendar.id } } else null,
+                            enabled = !busy,
+                            trailing = if (paired == false) { { Checkbox(on, onCheckedChange = null, enabled = !busy) } } else null,
                         )
-                        if (!calendar.writable) Text(stringResource(R.string.calendar_read_only), color = p.muted, style = MaterialTheme.typography.bodySmall)
                     }
-                    if (paired == false) Checkbox(calendar.id in ids, onCheckedChange = null, enabled = !busy,
-                        colors = CheckboxDefaults.colors(checkedColor = p.accent, checkmarkColor = p.onAccent))
+                }
+                if (createLocal) item {
+                    GroupItem(count - 1, count) {
+                        ClickRow(stringResource(R.string.action_create_local), enabled = !busy, icon = Icons.Outlined.Add) {
+                            vm.createLocalCalendar(showInApp = false) { ids = ids + it }
+                        }
+                    }
                 }
             }
             if (paired == false) {
-                if (!vm.hasSunlithCalendar) item {
-                    ClickRow(stringResource(R.string.action_create_local), enabled = !busy, icon = Icons.Outlined.Add) {
-                        vm.createLocalCalendar(showInApp = false) { ids = ids + it }
-                    }
-                }
                 if (addresses?.isEmpty() == true) item {
-                    Text(stringResource(R.string.device_link_no_network), Modifier.padding(16.dp), color = p.muted)
-                } else if (choices.size > 1) {
-                    item {
-                        val selected = choices.firstOrNull { it.host == host }
-                        ClickRow(stringResource(R.string.device_link_address), subtitle = stringResource(addressKindRes(selected?.kind)),
-                            icon = if (details) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore) { details = !details }
-                    }
-                    if (details) item {
-                        Column(Modifier.selectableGroup()) {
-                            choices.forEach { address ->
-                                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(address.host == host, enabled = !busy, role = Role.RadioButton) { host = address.host }.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    RadioButton(address.host == host, onClick = null, enabled = !busy, colors = RadioButtonDefaults.colors(selectedColor = p.accent, unselectedColor = p.faint))
-                                    Spacer(Modifier.width(12.dp))
-                                    Column(Modifier.weight(1f)) {
-                                        Text(address.host)
-                                        Text(stringResource(addressKindRes(address.kind)), color = p.muted, style = MaterialTheme.typography.bodySmall)
-                                    }
-                                }
+                    Text(stringResource(R.string.device_link_no_network), Modifier.padding(16.dp), color = p.onSurfaceVariant)
+                } else if (choices.size > 1) item {
+                    ListGroup {
+                        item {
+                            val selected = choices.firstOrNull { it.host == host }
+                            ClickRow(stringResource(R.string.device_link_address), subtitle = stringResource(addressKindRes(selected?.kind)),
+                                icon = if (details) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore) { details = !details }
+                        }
+                        if (details) choices.forEach { address ->
+                            item {
+                                val chosen = address.host == host
+                                GroupRow(
+                                    Modifier.selectState(chosen), onClick = { host = address.host }, enabled = !busy,
+                                    leading = { RadioButton(chosen, onClick = null, enabled = !busy) },
+                                    supporting = { Text(stringResource(addressKindRes(address.kind))) },
+                                ) { Text(address.host) }
                             }
                         }
                     }
@@ -335,19 +320,19 @@ internal fun DeviceLinkScreen(vm: SunlithViewModel) {
                 item {
                     Button(onClick = { connectComputer() },
                         enabled = !busy && vm.calendars.any { it.id in ids } && host.isNotBlank(),
-                        modifier = Modifier.fillMaxWidth().padding(16.dp).heightIn(min = 48.dp)) {
+                        modifier = Modifier.fillMaxWidth().padding(16.dp).heightIn(min = 56.dp)) {
                         Text(stringResource(R.string.connection_setup_connect_computer))
                     }
                 }
             }
-            if (paired == true && details) {
-                item { ClickRow(stringResource(R.string.device_link_unpair), enabled = !busy, color = p.danger) { unpair = true } }
+            if (paired == true && details) item {
+                ListGroup { item { ClickRow(stringResource(R.string.device_link_unpair), enabled = !busy, color = p.error) { unpair = true } } }
             }
         }
     }
     if (setup) ComputerSetupDialog(onShare = pairingFile?.let { file -> { reshare(file) } }) { setup = false }
     if (unpair) AlertDialog(
-        onDismissRequest = { unpair = false }, containerColor = p.surface,
+        onDismissRequest = { unpair = false },
         title = { Text(stringResource(R.string.device_link_unpair)) },
         text = { Text(stringResource(R.string.device_link_unpair_body)) },
         confirmButton = { TextButton(onClick = {

@@ -3,7 +3,6 @@ package io.github.sunsind.sunlith.ui
 import android.app.Application
 import android.content.Context
 import android.database.ContentObserver
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -26,11 +25,7 @@ import io.github.sunsind.sunlith.data.CalendarRepository
 import io.github.sunsind.sunlith.data.DeviceCalendar
 import io.github.sunsind.sunlith.data.EditBlockReason
 import io.github.sunsind.sunlith.data.EventDraft
-import io.github.sunsind.sunlith.data.IcsTransfer
-import io.github.sunsind.sunlith.data.ImportPreview
-import io.github.sunsind.sunlith.data.ImportReport
 import io.github.sunsind.sunlith.data.TodoItem
-import io.github.sunsind.sunlith.data.TodoMarker
 import io.github.sunsind.sunlith.data.indexByDay
 import io.github.sunsind.sunlith.data.key
 import io.github.sunsind.sunlith.data.projectSchoolEvents
@@ -39,12 +34,14 @@ import io.github.sunsind.sunlith.system.AppRefresh
 import io.github.sunsind.sunlith.system.LauncherIcons
 import io.github.sunsind.sunlith.system.SettingsStore
 import io.github.sunsind.sunlith.system.TodoStore
+import io.github.sunsind.sunlith.system.hasCalendarAccess
+import io.github.sunsind.sunlith.system.needsNotificationPermission
+import io.github.sunsind.sunlith.system.notificationsAllowed
 import io.github.sunsind.sunlith.system.visibleCalendarIds
-import io.github.sunsind.sunlith.ui.calendar.SearchMorph
 import io.github.sunsind.sunlith.ui.calendar.assignCourseSlots
 import io.github.sunsind.sunlith.ui.event.EditorState
+import io.github.sunsind.sunlith.ui.settings.CalendarTransfer
 import io.github.sunsind.sunlith.widget.AgendaWidgetReceiver
-import java.io.File
 import java.io.FileNotFoundException
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -63,8 +60,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import io.github.sunsind.sunlith.system.hasCalendarAccess
-import io.github.sunsind.sunlith.system.needsNotificationPermission
 
 enum class ViewMode { Month, Week, Day }
 
@@ -130,15 +125,6 @@ sealed interface Screen {
 
 class UiMessage(val text: String, val actionLabel: String?, val action: (() -> Unit)?)
 
-data class ImportUi(
-    val uri: Uri,
-    val busy: Boolean = true,
-    val preview: ImportPreview? = null,
-    val calendarId: Long? = null,
-    val report: ImportReport? = null,
-    val error: String? = null,
-)
-
 internal data class EventRanges(val agenda: ClosedRange<LocalDate>, val grid: ClosedRange<LocalDate>) {
     fun covers(range: ClosedRange<LocalDate>) = agenda.covers(range) || grid.covers(range)
 }
@@ -146,11 +132,17 @@ internal data class EventRanges(val agenda: ClosedRange<LocalDate>, val grid: Cl
 private fun ClosedRange<LocalDate>.covers(other: ClosedRange<LocalDate>) =
     other.start >= start && other.endInclusive <= endInclusive
 
+internal fun Throwable.userMessage(context: Context, fallback: Int = R.string.error_generic): String = when (this) {
+    is SecurityException -> context.getString(R.string.error_permission)
+    is FileNotFoundException -> context.getString(R.string.error_read_file)
+    else -> message?.takeIf { it.isNotBlank() && it.length < 300 } ?: context.getString(fallback)
+}
+
 class SunlithViewModel(app: Application, private val savedState: SavedStateHandle) : AndroidViewModel(app) {
     private val context: Context get() = getApplication()
     private val restored = CalendarPosition.from(savedState.get<Bundle>(KEY_POSITION), LocalDate.now())
     private val repo = CalendarRepository(app)
-    private val transfer = IcsTransfer(repo)
+    val transfer = CalendarTransfer(app, viewModelScope, repo, ::defaultCalendarId, onImported = ::refreshAfterChange, message = { message(it) })
     private val settings = SettingsStore(app)
     private val todoStore = TodoStore(app)
     private var todoJob: Job? = null
@@ -183,7 +175,7 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
                 todoCompleted = items.filter { todoStore.isCompleted(it.key) }.mapTo(mutableSetOf()) { it.key }
                 todoError = null
             } catch (c: CancellationException) { throw c }
-            catch (e: Exception) { todoError = e.userMessage() }
+            catch (e: Exception) { todoError = e.userMessage(context) }
             finally { if (generation == todoGeneration) todoLoading = false }
         }
     }
@@ -219,6 +211,7 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
 
     var hasPermission by mutableStateOf(context.hasCalendarAccess()); private set
     var notificationsGranted by mutableStateOf(!context.needsNotificationPermission()); private set
+    var notificationsAllowed by mutableStateOf(context.notificationsAllowed()); private set
     var notificationStepDone by mutableStateOf(settings.notificationStepDone); private set
     var aiIntroDone by mutableStateOf(settings.aiIntroDone); private set
 
@@ -273,6 +266,17 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
     private var dayParent by mutableStateOf(restored?.dayParent)
     val hasDayParent: Boolean get() = dayParent != null
     val searchMorph = SearchMorph()
+    val search = EventSearch(
+        viewModelScope, canLoad = { hasPermission }, onLoaded = ::rememberCourseSlots, onError = { message(it.userMessage(context)) },
+    ) {
+        withContext(Dispatchers.IO) {
+            val zone = ZoneId.systemDefault()
+            val today = LocalDate.now()
+            val ids = settings.visibleCalendarIds(repo.calendars())
+            projectSchoolEvents(repo.events(today.minusDays(365).atStartOfDay(zone).toInstant().toEpochMilli(),
+                today.plusDays(730).atStartOfDay(zone).toInstant().toEpochMilli(), ids, school = true), zone)
+        }
+    }
     var dayFocusRequest by mutableStateOf(0); private set
     /** Whether the pending day focus came from a link to a date, so it rings the event it lands on. */
     var dayFocusRing by mutableStateOf(false); private set
@@ -300,14 +304,6 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
     private var editorInitial: EditorState? = null
     var saving by mutableStateOf(false); private set
 
-    var searchQuery by mutableStateOf(""); private set
-    var searchResults by mutableStateOf(emptyList<CalendarEvent>()); private set
-    var searchLoading by mutableStateOf(false); private set
-    private var searchPool: List<CalendarEvent>? = null
-
-    var importUi by mutableStateOf<ImportUi?>(null); private set
-    var exporting by mutableStateOf(false); private set
-
     private val messageChannel = Channel<UiMessage>(Channel.BUFFERED)
     val messages = messageChannel.receiveAsFlow()
 
@@ -320,8 +316,6 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
         override fun onChange(selfChange: Boolean) = onProviderChanged()
     }
     private var changeJob: Job? = null
-    private var searchJob: Job? = null
-    private var searchGeneration = 0L
     private var pendingLink: (() -> Unit)? = null
 
     init {
@@ -342,19 +336,19 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
         this.settingsWindow = settingsWindow
         settingStates.forEach { it.reload() }
         refreshCurrentDate()
-        notificationsGranted = !context.needsNotificationPermission()
+        refreshNotificationAccess()
         val granted = context.hasCalendarAccess()
         val changed = granted != hasPermission
         hasPermission = granted
         if (!granted) {
-            todoJob?.cancel(); todoItems = emptyList(); todoCompleted = emptySet(); todoLoading = false
+            reloadTodos()
             loadJob?.cancel()
             loadGeneration++
             loadingEvents = false
             calendars = emptyList(); loaded = false
             eventWindows.clear()
             targetWindow = null
-            clearSearch()
+            search.clear()
             stack.clear(); editor = null
             return
         }
@@ -399,10 +393,21 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
         settingsPage = SettingsPage.Computer
     }
 
-    fun onNotificationPermissionResult(granted: Boolean, fromOnboarding: Boolean) {
+    private var remindersRefreshed = false
+
+    /** Rereads whether Android lets Sunlith post, and reschedules reminders once it does again. Saved switches stay as they are. */
+    fun refreshNotificationAccess() {
         notificationsGranted = !context.needsNotificationPermission()
-        if (fromOnboarding) finishNotificationStep(enable = granted)
-        else remindersEnabled = granted
+        val allowed = context.notificationsAllowed()
+        if (allowed) {
+            if (!notificationsAllowed || !remindersRefreshed) {
+                remindersRefreshed = true
+                refreshApp()
+            }
+        } else {
+            remindersRefreshed = false
+        }
+        notificationsAllowed = allowed
     }
 
     fun finishNotificationStep(enable: Boolean) {
@@ -423,7 +428,7 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
     }
 
     private fun invalidateSearch() {
-        if (Screen.Search in stack && hasPermission) loadSearchPool(force = true) else clearSearch()
+        if (Screen.Search in stack && hasPermission) search.load(force = true) else search.clear()
     }
 
     // endregion
@@ -528,7 +533,7 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
                 throw c
             } catch (e: Exception) {
                 if (generation == loadGeneration) {
-                    loadError = e.userMessage()
+                    loadError = e.userMessage(context)
                     loaded = true
                 }
             } finally {
@@ -723,9 +728,9 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
 
     fun openSearch() {
         // Each search starts empty rather than showing the last one.
-        updateSearch("")
+        search.update("")
         open(Screen.Search)
-        loadSearchPool(force = true)
+        search.load(force = true)
     }
 
     /** Whether app links can open now: setup is complete and the calendar has loaded. */
@@ -865,10 +870,8 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
             settings.lastCalendar = draft.calendarId
             closeEditor()
             if (state.id != null) stack.removeAll { it is Screen.Details && it.event.id == state.id }
-            refreshApp()
-            invalidateSearch()
             select(state.startDate)
-            reload()
+            refreshAfterChange()
             message(context.getString(R.string.msg_saved))
         }
     }
@@ -878,9 +881,7 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
             withContext(Dispatchers.IO) { repo.deleteEvent(id) }
             if (editor?.id == id) closeEditor()
             stack.removeAll { it is Screen.Details && it.event.id == id }
-            refreshApp()
-            invalidateSearch()
-            reload()
+            refreshAfterChange()
             message(context.getString(R.string.msg_deleted))
         }
     }
@@ -894,9 +895,7 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
         settings.selectedCalendarIds = next
         settings.hasChosenCalendars = true
         activeIds = next
-        invalidateSearch()
-        refreshApp()
-        reload()
+        refreshAfterChange()
     }
 
     val hasSunlithCalendar: Boolean get() = calendars.any { it.local && it.writable && it.account == "Sunlith" }
@@ -923,138 +922,6 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
 
     // endregion
 
-    // region search
-
-    private fun clearSearch() {
-        searchGeneration++
-        searchJob?.cancel()
-        searchJob = null
-        searchPool = null
-        searchResults = emptyList()
-        searchLoading = false
-    }
-
-    private fun loadSearchPool(force: Boolean) {
-        if (!hasPermission) {
-            clearSearch()
-            return
-        }
-        if (!force && searchJob?.isActive == true) return
-        val generation = ++searchGeneration
-        searchJob?.cancel()
-        searchLoading = true
-        searchJob = viewModelScope.launch {
-            try {
-                val pool = withContext(Dispatchers.IO) {
-                    val zone = ZoneId.systemDefault()
-                    val today = LocalDate.now()
-                    val ids = settings.visibleCalendarIds(repo.calendars())
-                    projectSchoolEvents(repo.events(today.minusDays(365).atStartOfDay(zone).toInstant().toEpochMilli(),
-                        today.plusDays(730).atStartOfDay(zone).toInstant().toEpochMilli(), ids, school = true), zone)
-                }
-                if (generation != searchGeneration) return@launch
-                rememberCourseSlots(pool)
-                searchPool = pool
-                filterSearch()
-            } catch (c: CancellationException) {
-                throw c
-            } catch (e: Exception) {
-                if (generation == searchGeneration) message(e.userMessage())
-            } finally {
-                if (generation == searchGeneration) searchLoading = false
-            }
-        }
-    }
-
-    fun updateSearch(query: String) {
-        searchQuery = query
-        if (searchPool == null) loadSearchPool(force = false) else filterSearch()
-    }
-
-    private fun filterSearch() {
-        val terms = searchQuery.trim().lowercase().split(Regex("\\s+")).filter(String::isNotEmpty)
-        val pool = searchPool.orEmpty()
-        searchResults = if (terms.isEmpty()) emptyList() else pool.filter { e ->
-            val hay = "${e.title}\n${e.location}\n${TodoMarker.strip(e.description)}\n${e.calendarName}".lowercase()
-            terms.all { it in hay }
-        }.take(400)
-    }
-
-    // endregion
-
-    // region import / export
-
-    fun startImport(uri: Uri) {
-        importUi = ImportUi(uri)
-        viewModelScope.launch {
-            try {
-                val preview = withContext(Dispatchers.IO) {
-                    val stream = context.contentResolver.openInputStream(uri) ?: throw FileNotFoundException()
-                    stream.use { transfer.inspect(it) }
-                }
-                if (importUi?.uri != uri) return@launch
-                val dest = defaultCalendarId()
-                importUi = ImportUi(uri, busy = false, preview = preview, calendarId = dest)
-            } catch (c: CancellationException) {
-                throw c
-            } catch (e: Exception) {
-                if (importUi?.uri == uri) importUi = ImportUi(uri, busy = false, error = e.userMessage(R.string.error_read_file))
-            }
-        }
-    }
-
-    fun chooseImportCalendar(id: Long) {
-        importUi = importUi?.copy(calendarId = id)
-    }
-
-    fun runImport() {
-        val state = importUi ?: return
-        val calendarId = state.calendarId ?: return
-        if (state.busy) return
-        importUi = state.copy(busy = true)
-        viewModelScope.launch {
-            try {
-                val report = withContext(Dispatchers.IO) {
-                    val stream = context.contentResolver.openInputStream(state.uri) ?: throw FileNotFoundException()
-                    stream.use { transfer.import(it, calendarId) }
-                }
-                importUi = importUi?.copy(busy = false, report = report)
-                invalidateSearch()
-                refreshApp()
-                reload()
-            } catch (c: CancellationException) {
-                throw c
-            } catch (e: Exception) {
-                importUi = importUi?.copy(busy = false, error = e.userMessage())
-            }
-        }
-    }
-
-    fun dismissImport() { importUi = null }
-
-    fun export(uri: Uri, calendarIds: Set<Long>) {
-        if (exporting) return
-        exporting = true
-        launchAction({ exporting = false }) {
-            val report = withContext(Dispatchers.IO) {
-                val staged = File.createTempFile("sunlith-export-", ".ics", context.cacheDir)
-                try {
-                    val exported = staged.outputStream().use { transfer.export(it, calendarIds) }
-                    val stream = runCatching { context.contentResolver.openOutputStream(uri, "wt") }.getOrNull()
-                        ?: context.contentResolver.openOutputStream(uri) ?: throw FileNotFoundException()
-                    stream.use { output -> staged.inputStream().use { it.copyTo(output) } }
-                    exported
-                } finally { staged.delete() }
-            }
-            message(context.resources.getQuantityString(R.plurals.msg_exported, report.exported, report.exported))
-            if (report.skipped > 0) {
-                message(context.getString(R.string.msg_export_skipped))
-            }
-        }
-    }
-
-    // endregion
-
     fun message(text: String, actionLabel: String? = null, action: (() -> Unit)? = null) {
         messageChannel.trySend(UiMessage(text, actionLabel, action))
     }
@@ -1065,7 +932,7 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
         } catch (c: CancellationException) {
             throw c
         } catch (e: Exception) {
-            message(e.userMessage())
+            message(e.userMessage(context))
         } finally {
             onFinally()
         }
@@ -1079,10 +946,11 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
         runCatching { AppRefresh.refresh(context) }
     }
 
-    private fun Throwable.userMessage(fallback: Int = R.string.error_generic): String = when (this) {
-        is SecurityException -> context.getString(R.string.error_permission)
-        is FileNotFoundException -> context.getString(R.string.error_read_file)
-        else -> message?.takeIf { it.isNotBlank() && it.length < 300 } ?: context.getString(fallback)
+    /** After Sunlith changes calendar data: reminders and widgets, then search and the shown events. */
+    private fun refreshAfterChange() {
+        refreshApp()
+        invalidateSearch()
+        reload()
     }
 
     companion object {

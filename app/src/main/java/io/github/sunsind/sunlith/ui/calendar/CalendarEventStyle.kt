@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckBoxOutlineBlank
 import androidx.compose.material.icons.outlined.Repeat
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
@@ -59,17 +60,16 @@ import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.data.CalendarEvent
 import io.github.sunsind.sunlith.data.SchoolAbsenceCoverage
 import io.github.sunsind.sunlith.ui.Formats
-import io.github.sunsind.sunlith.ui.LocalPalette
-import io.github.sunsind.sunlith.ui.SunlithPalette
+import io.github.sunsind.sunlith.ui.LocalDarkTheme
 import io.github.sunsind.sunlith.ui.timeLabel
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
-import kotlin.math.sign
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
+import kotlin.math.sign
 
 /** Fill and text colors for an event block. */
 @Immutable
@@ -132,10 +132,10 @@ private fun CalendarEvent.courseKeyOrNull(): String? = school?.course?.takeIf { 
  * School classes take their saved course color; personal events use a stable title color. A canceled class keeps its
  * color under [drawCanceledBars], with explicit text so color is never the only signal.
  */
-internal fun eventColors(event: CalendarEvent, palette: SunlithPalette, courses: CourseColors, dimmed: Boolean = false): EventColors {
-    if (dimmed) return EventColors(palette.raised, palette.muted)
-    return event.courseKeyOrNull()?.let { courseColors(courses.slot(it), palette.dark) }
-        ?: courseColors(preferredCourseSlot("event:${event.title.trim().lowercase(Locale.ROOT)}"), palette.dark)
+internal fun eventColors(event: CalendarEvent, colors: ColorScheme, dark: Boolean, courses: CourseColors, dimmed: Boolean = false): EventColors {
+    if (dimmed) return EventColors(colors.surfaceContainerHigh, colors.onSurfaceVariant)
+    return event.courseKeyOrNull()?.let { courseColors(courses.slot(it), dark) }
+        ?: courseColors(preferredCourseSlot("event:${event.title.trim().lowercase(Locale.ROOT)}"), dark)
 }
 
 internal fun CalendarEvent.withTodoMark(title: String) = if (todo) "☐ $title" else title
@@ -176,14 +176,13 @@ internal fun DrawScope.drawCanceledBars(content: Color, topLeft: Offset = Offset
 @Composable
 @ReadOnlyComposable
 internal fun eventColors(event: CalendarEvent): EventColors =
-    eventColors(event, LocalPalette.current, LocalCourseColors.current)
+    eventColors(event, MaterialTheme.colorScheme, LocalDarkTheme.current, LocalCourseColors.current)
 
 /** A small marker color (dots, swatches) that matches the event's block color. */
 @Composable
 @ReadOnlyComposable
 internal fun eventAccent(event: CalendarEvent): Color {
-    val p = LocalPalette.current
-    return eventColors(event, p, LocalCourseColors.current).container
+    return eventColors(event).container
 }
 
 /** Keep a verified college cancellation in even the smallest Month chip. Teacher absence has its own status line. */
@@ -373,7 +372,7 @@ internal fun CalendarEventCard(
     val title = event.displayTitle().ifBlank { stringResource(R.string.untitled) }
     val colors = eventColors(event)
     val status = absenceStatus(event, f)
-    val radius = 10.dp
+    val radius = 12.dp
     val shape = RoundedCornerShape(radius)
     val morph = LocalAgendaMorph.current
     val endpoint = morph?.endpoint(event, day, inList = true, radius)
@@ -389,7 +388,7 @@ internal fun CalendarEventCard(
     ) {
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            val titleStyle = if (endpoint != null) typography.dayEventTitle(f) else typography.titleMedium
+            val titleStyle = if (endpoint != null) typography.dayEventTitle(f) else typography.titleMediumEmphasized
             AgendaCardText(title, colors.content, titleStyle, endpoint, "title")
             if (!event.allDay) {
                 AgendaCardText(time, colors.content, typography.bodySmall, endpoint, "time",

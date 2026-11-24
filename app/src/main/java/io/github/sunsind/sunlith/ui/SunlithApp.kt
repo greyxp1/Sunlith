@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,15 +23,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -60,8 +58,8 @@ import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.SettingsActivity
 import io.github.sunsind.sunlith.data.key
 import io.github.sunsind.sunlith.ui.calendar.CalendarScreen
-import io.github.sunsind.sunlith.ui.calendar.LocalCourseColors
 import io.github.sunsind.sunlith.ui.calendar.CourseColors
+import io.github.sunsind.sunlith.ui.calendar.LocalCourseColors
 import io.github.sunsind.sunlith.ui.event.DetailsScreen
 import io.github.sunsind.sunlith.ui.event.EventEditorScreen
 import io.github.sunsind.sunlith.ui.settings.openAppSettings
@@ -77,7 +75,7 @@ fun SunlithApp(vm: SunlithViewModel, footer: @Composable () -> Unit = {}) {
         (retainedKeys - stackKeys.toSet()).forEach(screenStates::removeState)
         retainedKeys = stackKeys
     }
-    SunlithWindow(vm, footer) {
+    SunlithWindow(vm, footer, onCanvas = { vm.stack.lastOrNull().let { it != null && it != Screen.Search } }) {
         when {
             !vm.aiIntroDone -> ComputerWelcome(vm)
             !vm.hasPermission -> Onboarding(vm)
@@ -101,7 +99,7 @@ fun SunlithApp(vm: SunlithViewModel, footer: @Composable () -> Unit = {}) {
                     },
                 ) { shown, active ->
                     if (shown != null) {
-                        val surface = if (shown.screen == Screen.Search) Modifier else Modifier.background(LocalPalette.current.background)
+                        val surface = if (shown.screen == Screen.Search) Modifier else Modifier.background(MaterialTheme.colorScheme.canvas)
                         Box(Modifier.fillMaxSize().then(surface)) {
                             screenStates.SaveableStateProvider(shown.key) {
                                 when (val screen = shown.screen) {
@@ -119,10 +117,14 @@ fun SunlithApp(vm: SunlithViewModel, footer: @Composable () -> Unit = {}) {
     }
 }
 
+/** [onCanvas] tells whether the page shown sits on the settings canvas rather than the calendar background. */
 @Composable
-internal fun SunlithWindow(vm: SunlithViewModel, footer: @Composable () -> Unit = {}, content: @Composable () -> Unit) {
+internal fun SunlithWindow(
+    vm: SunlithViewModel, footer: @Composable () -> Unit = {}, onCanvas: () -> Boolean = { true }, content: @Composable () -> Unit,
+) {
     SunlithTheme(vm.themeMode) {
-        val p = LocalPalette.current
+        val p = MaterialTheme.colorScheme
+        val statusBar by animateColorAsState(if (onCanvas()) p.canvas else p.background, MaterialTheme.motionScheme.defaultEffectsSpec())
         SystemBarsForPalette()
         val snackbar = remember { SnackbarHostState() }
         LaunchedEffect(vm) {
@@ -139,10 +141,8 @@ internal fun SunlithWindow(vm: SunlithViewModel, footer: @Composable () -> Unit 
             Column(Modifier.fillMaxSize()) {
                 Box(Modifier.weight(1f).fillMaxWidth().background(p.background)) {
                     content()
-                    Box(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars).background(p.background))
-                    SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().imePadding().padding(bottom = 72.dp)) { data ->
-                        Snackbar(data, containerColor = p.ink, contentColor = p.background, actionColor = p.background, dismissActionContentColor = p.background, shape = RoundedCornerShape(10.dp))
-                    }
+                    Box(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars).background(statusBar))
+                    SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().imePadding().padding(bottom = 72.dp))
                 }
                 footer()
             }
@@ -198,8 +198,9 @@ private fun Onboarding(vm: SunlithViewModel) {
 
 @Composable
 private fun NotificationStep(vm: SunlithViewModel) {
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        vm.onNotificationPermissionResult(granted, fromOnboarding = true)
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        vm.refreshNotificationAccess()
+        vm.finishNotificationStep(enable = true)
     }
     OnboardingPage(
         title = stringResource(R.string.notify_title),
@@ -217,7 +218,7 @@ private fun OnboardingPage(
     title: String, lead: String,
     primary: String, onPrimary: () -> Unit, secondary: String?, onSecondary: () -> Unit,
 ) {
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 28.dp, vertical = 24.dp)) {
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
             Column(
@@ -228,23 +229,22 @@ private fun OnboardingPage(
                 SunMark(Modifier.size(72.dp))
                 Spacer(Modifier.height(28.dp))
                 Text(
-                    title, color = p.ink, style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center,
+                    title, color = p.onSurface, style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center,
                     modifier = Modifier.widthIn(max = 480.dp).semantics { heading() },
                 )
                 Spacer(Modifier.height(12.dp))
-                Text(lead, color = p.muted, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center, modifier = Modifier.widthIn(max = 480.dp))
+                Text(lead, color = p.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center, modifier = Modifier.widthIn(max = 480.dp))
             }
         }
         Spacer(Modifier.height(24.dp))
         Column(Modifier.align(Alignment.CenterHorizontally).widthIn(max = 480.dp).fillMaxWidth()) {
             Button(
-                onClick = onPrimary, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp), shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = p.accent, contentColor = p.onAccent),
+                onClick = onPrimary, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
             ) { Text(primary, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center) }
             if (secondary != null) {
                 Spacer(Modifier.height(8.dp))
                 TextButton(onClick = onSecondary, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                    Text(secondary, color = p.muted, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center)
+                    Text(secondary, color = p.onSurfaceVariant, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center)
                 }
             }
         }

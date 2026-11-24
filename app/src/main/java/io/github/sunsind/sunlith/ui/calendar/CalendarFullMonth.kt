@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -41,7 +40,6 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
@@ -51,7 +49,7 @@ import androidx.compose.ui.unit.dp
 import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.data.CalendarEvent
 import io.github.sunsind.sunlith.ui.Formats
-import io.github.sunsind.sunlith.ui.LocalPalette
+import io.github.sunsind.sunlith.ui.LocalDarkTheme
 import io.github.sunsind.sunlith.ui.gridStart
 import java.time.LocalDate
 import java.time.YearMonth
@@ -139,7 +137,8 @@ private fun FullMonthCell(
     number: Dp, chip: Dp, row: Dp, measurer: TextMeasurer, modifier: Modifier,
     onClick: () -> Unit,
 ) {
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
+    val dark = LocalDarkTheme.current
     val context = LocalContext.current
     val courses = LocalCourseColors.current
     val untitled = stringResource(R.string.untitled)
@@ -150,13 +149,12 @@ private fun FullMonthCell(
     val grid = rememberTimelineGridColors()
     // Tiles match the hour grid, so Month and the timelines read as one calendar. Days from other months fade back.
     val tile = when { isToday -> grid.today; inMonth -> grid.tile; else -> grid.tile.copy(alpha = grid.tile.alpha * 0.45f) }
-    val shape = RoundedCornerShape(8.dp)
+    val shape = MaterialTheme.shapes.medium
     val slots = fullMonthChipSlots(row, number, chip, LocalDensity.current)
-    val numberStyle = MaterialTheme.typography.bodyMedium.copy(
-        color = when { isSelected -> p.onAccent; inMonth -> p.ink; else -> p.faint },
-        fontWeight = if (isToday || isSelected) FontWeight.SemiBold else FontWeight.Normal,
+    val numberStyle = (if (isToday || isSelected) MaterialTheme.typography.bodyMediumEmphasized else MaterialTheme.typography.bodyMedium).copy(
+        color = when { isSelected -> p.onPrimary; inMonth -> p.onSurface; else -> p.outline },
     )
-    val chipStyle = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium)
+    val chipStyle = MaterialTheme.typography.labelSmall
     Box(
         modifier
             .padding(1.5.dp)
@@ -175,7 +173,7 @@ private fun FullMonthCell(
                 val padding = 3.dp.toPx()
                 val rtl = layoutDirection == LayoutDirection.Rtl
                 val labels = events.take(slots).map { event ->
-                    val colors = eventColors(event, p, courses, dimmed = !inMonth)
+                    val colors = eventColors(event, p, dark, courses, dimmed = !inMonth)
                     val title = event.displayTitle().ifBlank { untitled }
                     val markerWidth = if (event.todo) 10.dp.toPx() else 0f
                     val width = (available - 2 * padding - markerWidth).toInt().coerceAtLeast(0)
@@ -184,13 +182,13 @@ private fun FullMonthCell(
                     Triple(event, colors, text)
                 }
                 val hiddenColors = events.asSequence().drop(slots).take(2)
-                    .map { eventColors(it, p, courses, dimmed = !inMonth).container }.toList()
+                    .map { eventColors(it, p, dark, courses, dimmed = !inMonth).container }.toList()
                 onDrawBehind {
                     drawRect(tile)
                     val circleRadius = minOf(circleWidth, numberSize) / 2
                     val center = Offset(size.width / 2, top + numberSize / 2)
-                    if (isSelected) drawCircle(p.accent, circleRadius, center)
-                    else if (isToday) drawCircle(p.ink, circleRadius - 0.75.dp.toPx(), center, style = Stroke(1.5.dp.toPx()))
+                    if (isSelected) drawCircle(p.primary, circleRadius, center)
+                    else if (isToday) drawCircle(p.onSurface, circleRadius - 0.75.dp.toPx(), center, style = Stroke(1.5.dp.toPx()))
                     drawText(numberText, topLeft = Offset(circleLeft + (circleWidth - numberText.size.width) / 2,
                         top + (numberSize - numberText.size.height) / 2))
                     if (labels.isNotEmpty()) {

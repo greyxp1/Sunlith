@@ -59,7 +59,6 @@ import androidx.compose.ui.unit.dp
 import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.data.CalendarEvent
 import io.github.sunsind.sunlith.data.key
-import io.github.sunsind.sunlith.ui.LocalPalette
 import io.github.sunsind.sunlith.ui.Screen
 import io.github.sunsind.sunlith.ui.ViewMode
 import io.github.sunsind.sunlith.ui.weekStart
@@ -123,7 +122,7 @@ internal fun ContinuousTimeline(
     val motion = c.motion
     val density = LocalDensity.current
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     // Day shows one day of the strip under its own week picker, with Day's larger titles and roomier cards.
     // The view this timeline belongs to, which stays put while it slides out for another one.
     val mode = LocalShownMode.current ?: vm.viewMode
@@ -576,7 +575,7 @@ internal fun ContinuousTimeline(
                                         f, compact, titleStyle, highlighted, motion, Modifier.fillMaxSize(), onOpen, vm::newEvent,
                                         { overflowEvents = it }, axis, readableLabels = days == 1,
                                         minLabelHeight = if (days == 1) text.minBlock else 0.dp, clock = clock.takeIf { isToday })
-                                } else Text(loadingLabel, Modifier.padding(8.dp), color = p.muted, style = railStyle)
+                                } else Text(loadingLabel, Modifier.padding(8.dp), color = p.onSurfaceVariant, style = railStyle)
                             }
                         }
                     }
@@ -712,7 +711,7 @@ private fun TimelineBand(
     gutter: Dp, motion: Boolean, shownHeight: MutableIntState, extent: MutableIntState,
     content: @Composable RowScope.() -> Unit,
 ) {
-    val background = LocalPalette.current.background
+    val background = MaterialTheme.colorScheme.background
     val height = remember { Animatable(0f) }
     // Written by the layout and read only by the effect, so a new height never measures the band twice.
     val target = remember { mutableIntStateOf(-1) }

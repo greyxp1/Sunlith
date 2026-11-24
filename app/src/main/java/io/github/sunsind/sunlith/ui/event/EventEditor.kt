@@ -1,5 +1,3 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
-
 package io.github.sunsind.sunlith.ui.event
 
 import android.Manifest
@@ -12,11 +10,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -47,15 +45,12 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -92,22 +87,22 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.sunsind.sunlith.R
+import io.github.sunsind.sunlith.data.CalendarDates
 import io.github.sunsind.sunlith.data.DeviceCalendar
+import io.github.sunsind.sunlith.system.needsNotificationPermission
+import io.github.sunsind.sunlith.ui.FieldGroup
 import io.github.sunsind.sunlith.ui.Formats
-import io.github.sunsind.sunlith.ui.LocalPalette
 import io.github.sunsind.sunlith.ui.Notice
 import io.github.sunsind.sunlith.ui.RepeatPreset
 import io.github.sunsind.sunlith.ui.ScreenTopBar
 import io.github.sunsind.sunlith.ui.SunlithViewModel
+import io.github.sunsind.sunlith.ui.canvas
 import io.github.sunsind.sunlith.ui.eventTint
 import io.github.sunsind.sunlith.ui.rememberFormats
 import io.github.sunsind.sunlith.ui.settings.openAppSettings
 import io.github.sunsind.sunlith.ui.timeLabel
-import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
-import java.time.ZoneOffset
-import io.github.sunsind.sunlith.system.needsNotificationPermission
 
 private enum class Picking { StartDate, StartTime, EndDate, EndTime }
 
@@ -120,13 +115,12 @@ fun EventEditorScreen(vm: SunlithViewModel, active: Boolean) {
     val last = remember { arrayOfNulls<EditorState>(1) }
     if (current != null) SideEffect { last[0] = current }
     val state = current ?: last[0] ?: return
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     val f = rememberFormats()
     val context = androidx.compose.ui.platform.LocalContext.current
     var confirmDiscard by rememberSaveable { mutableStateOf(false) }
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
     var picking by rememberSaveable { mutableStateOf<Picking?>(null) }
-    var pendingReminder by rememberSaveable { mutableStateOf<Int?>(null) }
     val writable = vm.writableCalendars
     val problem = state.problem(writable)
     val problemMessage = problem?.let { stringResource(it) }
@@ -135,25 +129,17 @@ fun EventEditorScreen(vm: SunlithViewModel, active: Boolean) {
     BackHandler(enabled = active && vm.editorDirty) { confirmDiscard = true }
 
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        val minutes = pendingReminder
-        pendingReminder = null
-        vm.onNotificationPermissionResult(granted, fromOnboarding = false)
-        if (minutes != null) vm.updateEditor { it.copy(reminders = (it.reminders + minutes).distinct().sorted()) }
+        vm.refreshNotificationAccess()
         if (!granted) vm.message(context.getString(R.string.msg_notifications_denied), context.getString(R.string.action_open_settings)) { context.openAppSettings() }
     }
     fun addReminder(minutes: Int) {
-        val needs = context.needsNotificationPermission()
-        if (needs) {
-            pendingReminder = minutes
-            notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        } else {
-            if (!vm.remindersEnabled) vm.remindersEnabled = true
-            vm.updateEditor { it.copy(reminders = (it.reminders + minutes).distinct().sorted()) }
-        }
+        vm.updateEditor { it.copy(reminders = (it.reminders + minutes).distinct().sorted()) }
+        // Asks only while reminders are on, so turning them off in Settings stays a choice the editor respects.
+        if (vm.remindersEnabled && context.needsNotificationPermission()) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     Scaffold(
-        containerColor = p.background,
+        containerColor = p.canvas,
         topBar = {
             ScreenTopBar(
                 title = stringResource(if (state.id == null) R.string.editor_new else R.string.editor_edit),
@@ -172,96 +158,100 @@ fun EventEditorScreen(vm: SunlithViewModel, active: Boolean) {
             TextField(
                 value = state.title,
                 onValueChange = { v -> vm.updateEditor { it.copy(title = v) } },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                textStyle = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                textStyle = MaterialTheme.typography.headlineSmallEmphasized,
                 label = { Text(stringResource(R.string.editor_title_hint)) },
                 colors = plainFieldColors(),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                 maxLines = 3,
             )
             if (state.editsSeries) Notice(stringResource(R.string.editor_series_note), muted = true)
-            HorizontalDivider(color = p.line)
-
-            EditorRow(Icons.Outlined.Schedule, onClick = null, modifier = Modifier.toggleable(state.allDay, role = Role.Switch) { value ->
-                vm.updateEditor { it.copy(allDay = value) }
-            }) {
-                Text(stringResource(R.string.all_day), Modifier.weight(1f).padding(end = 16.dp), style = MaterialTheme.typography.bodyLarge)
-                Switch(checked = state.allDay, onCheckedChange = null, colors = switchColors())
-            }
-            DateTimeRow(
-                label = stringResource(R.string.editor_starts), date = f.dayShort(state.startDate),
-                dateLabel = stringResource(R.string.editor_start_date), timeLabel = stringResource(R.string.editor_start_time),
-                time = if (state.allDay) null else f.time(state.startTime), error = false,
-                onDate = { picking = Picking.StartDate }, onTime = { picking = Picking.StartTime },
-            )
-            DateTimeRow(
-                label = stringResource(R.string.editor_ends), date = f.dayShort(state.endDate),
-                dateLabel = stringResource(R.string.editor_end_date), timeLabel = stringResource(R.string.editor_end_time),
-                time = if (state.allDay) null else f.time(state.endTime), error = endInvalid,
-                onDate = { picking = Picking.EndDate }, onTime = { picking = Picking.EndTime },
-            )
-            if (endInvalid) {
-                Text(stringResource(R.string.editor_end_before_start), Modifier.padding(start = 56.dp, end = 16.dp, bottom = 8.dp)
-                    .semantics { liveRegion = LiveRegionMode.Polite }, color = p.danger, style = MaterialTheme.typography.bodyMedium)
-            }
-            if (!state.allDay && state.timeZone != java.util.TimeZone.getDefault().id) {
-                Text(stringResource(R.string.editor_timezone_note, state.timeZone), Modifier.padding(start = 56.dp, end = 16.dp, bottom = 8.dp), color = p.muted, style = MaterialTheme.typography.bodySmall)
-            }
-            HorizontalDivider(color = p.line)
-
-            CalendarChooser(state, writable, vm)
-            RepeatChooser(state, vm, f)
-            EditorRow(Icons.Outlined.CheckBox, onClick = null, modifier = Modifier.toggleable(state.todo, role = Role.Switch) { value ->
-                vm.updateEditor { it.copy(todo = value) }
-            }) {
-                Column(Modifier.weight(1f).padding(end = 16.dp)) {
-                    Text(stringResource(R.string.todo_tag), style = MaterialTheme.typography.bodyLarge)
-                    Text(stringResource(if (state.recurring) R.string.todo_tag_series_hint else R.string.todo_tag_hint),
-                        color = p.muted, style = MaterialTheme.typography.bodySmall)
+            FieldGroup {
+                EditorRow(Icons.Outlined.Schedule, onClick = null, modifier = Modifier.toggleable(state.allDay, role = Role.Switch) { value ->
+                    vm.updateEditor { it.copy(allDay = value) }
+                }) {
+                    Text(stringResource(R.string.all_day), Modifier.weight(1f).padding(end = 16.dp), style = MaterialTheme.typography.bodyLarge)
+                    Switch(checked = state.allDay, onCheckedChange = null)
                 }
-                Switch(checked = state.todo, onCheckedChange = null, colors = switchColors())
+                DateTimeRow(
+                    label = stringResource(R.string.editor_starts), date = f.dayShort(state.startDate),
+                    dateLabel = stringResource(R.string.editor_start_date), timeLabel = stringResource(R.string.editor_start_time),
+                    time = if (state.allDay) null else f.time(state.startTime), error = false,
+                    onDate = { picking = Picking.StartDate }, onTime = { picking = Picking.StartTime },
+                )
+                DateTimeRow(
+                    label = stringResource(R.string.editor_ends), date = f.dayShort(state.endDate),
+                    dateLabel = stringResource(R.string.editor_end_date), timeLabel = stringResource(R.string.editor_end_time),
+                    time = if (state.allDay) null else f.time(state.endTime), error = endInvalid,
+                    onDate = { picking = Picking.EndDate }, onTime = { picking = Picking.EndTime },
+                )
+                if (endInvalid) {
+                    Text(stringResource(R.string.editor_end_before_start), Modifier.padding(start = 56.dp, end = 16.dp, bottom = 8.dp)
+                        .semantics { liveRegion = LiveRegionMode.Polite }, color = p.error, style = MaterialTheme.typography.bodyMedium)
+                }
+                if (!state.allDay && state.timeZone != java.util.TimeZone.getDefault().id) {
+                    Text(stringResource(R.string.editor_timezone_note, state.timeZone), Modifier.padding(start = 56.dp, end = 16.dp, bottom = 8.dp), color = p.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                }
             }
-            var addOpen by remember { mutableStateOf(false) }
-            EditorRow(Icons.Outlined.Notifications, onClick = null) {
-                Column(Modifier.weight(1f)) {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
-                        state.reminders.forEach { minutes ->
-                            InputChip(
-                                selected = false,
-                                onClick = { vm.updateEditor { it.copy(reminders = it.reminders - minutes) } },
-                                label = { Text(f.reminder(minutes)) },
-                                trailingIcon = { Icon(Icons.Outlined.Close, stringResource(R.string.editor_remove_reminder, f.reminder(minutes)), Modifier.size(InputChipDefaults.IconSize)) },
-                            )
-                        }
-                        Box {
-                            AssistChip(
-                                onClick = { addOpen = true },
-                                label = { Text(stringResource(R.string.editor_add_reminder)) },
-                                leadingIcon = { Icon(Icons.Outlined.Add, null, Modifier.size(16.dp)) },
-                            )
-                            DropdownMenu(expanded = addOpen, onDismissRequest = { addOpen = false }) {
-                                ReminderPresets.filter { it !in state.reminders }.forEach { minutes ->
-                                    DropdownMenuItem(text = { Text(f.reminder(minutes)) }, onClick = { addOpen = false; addReminder(minutes) })
+            FieldGroup {
+                CalendarChooser(state, writable, vm)
+                RepeatChooser(state, vm, f)
+                EditorRow(Icons.Outlined.CheckBox, onClick = null, modifier = Modifier.toggleable(state.todo, role = Role.Switch) { value ->
+                    vm.updateEditor { it.copy(todo = value) }
+                }) {
+                    Column(Modifier.weight(1f).padding(end = 16.dp)) {
+                        Text(stringResource(R.string.todo_tag), style = MaterialTheme.typography.bodyLarge)
+                        Text(stringResource(if (state.recurring) R.string.todo_tag_series_hint else R.string.todo_tag_hint),
+                            color = p.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(checked = state.todo, onCheckedChange = null)
+                }
+                var addOpen by remember { mutableStateOf(false) }
+                EditorRow(Icons.Outlined.Notifications, onClick = null) {
+                    Column(Modifier.weight(1f)) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+                            state.reminders.forEach { minutes ->
+                                InputChip(
+                                    selected = false,
+                                    onClick = { vm.updateEditor { it.copy(reminders = it.reminders - minutes) } },
+                                    label = { Text(f.reminder(minutes)) },
+                                    trailingIcon = { Icon(Icons.Outlined.Close, stringResource(R.string.editor_remove_reminder, f.reminder(minutes)), Modifier.size(InputChipDefaults.IconSize)) },
+                                )
+                            }
+                            Box {
+                                AssistChip(
+                                    onClick = { addOpen = true },
+                                    label = { Text(stringResource(R.string.editor_add_reminder)) },
+                                    leadingIcon = { Icon(Icons.Outlined.Add, null, Modifier.size(16.dp)) },
+                                )
+                                DropdownMenu(expanded = addOpen, onDismissRequest = { addOpen = false }) {
+                                    ReminderPresets.filter { it !in state.reminders }.forEach { minutes ->
+                                        DropdownMenuItem(text = { Text(f.reminder(minutes)) }, onClick = { addOpen = false; addReminder(minutes) })
+                                    }
                                 }
                             }
                         }
-                    }
-                    if (state.reminders.isNotEmpty() && (!vm.remindersEnabled || !vm.notificationsGranted)) {
-                        Text(stringResource(R.string.editor_reminders_off), color = p.muted, style = MaterialTheme.typography.bodySmall)
+                        if (state.reminders.isNotEmpty() && (!vm.remindersEnabled || !vm.notificationsAllowed)) {
+                            Text(
+                                stringResource(if (!vm.remindersEnabled) R.string.editor_reminders_off else R.string.notifications_blocked),
+                                color = p.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                     }
                 }
             }
-            HorizontalDivider(color = p.line)
-
-            EditorField(Icons.Outlined.LocationOn, state.location, stringResource(R.string.editor_location_hint), singleLine = true) { v -> vm.updateEditor { it.copy(location = v) } }
-            EditorField(Icons.AutoMirrored.Outlined.Notes, state.notes, stringResource(R.string.editor_notes_hint), singleLine = false) { v -> vm.updateEditor { it.copy(notes = v) } }
+            FieldGroup {
+                EditorField(Icons.Outlined.LocationOn, state.location, stringResource(R.string.editor_location_hint), singleLine = true) { v -> vm.updateEditor { it.copy(location = v) } }
+                EditorField(Icons.AutoMirrored.Outlined.Notes, state.notes, stringResource(R.string.editor_notes_hint), singleLine = false) { v -> vm.updateEditor { it.copy(notes = v) } }
+            }
 
             problem?.let { if (it != R.string.editor_end_before_start && state.title.isNotBlank()) Notice(stringResource(it), muted = true) }
 
             if (state.id != null) {
                 Spacer(Modifier.height(16.dp))
                 TextButton(onClick = { confirmDelete = true }, modifier = Modifier.padding(horizontal = 8.dp).heightIn(min = 48.dp)) {
-                    Text(stringResource(if (state.editsSeries) R.string.action_delete_series else R.string.action_delete_event), color = p.danger)
+                    Text(stringResource(if (state.editsSeries) R.string.action_delete_series else R.string.action_delete_event), color = p.error)
                 }
             }
         }
@@ -280,7 +270,7 @@ fun EventEditorScreen(vm: SunlithViewModel, active: Boolean) {
             onDismissRequest = { confirmDiscard = false },
             title = { Text(stringResource(R.string.editor_discard_title)) },
             text = { Text(stringResource(R.string.editor_discard_body)) },
-            confirmButton = { TextButton(onClick = { confirmDiscard = false; vm.closeEditor() }) { Text(stringResource(R.string.action_discard), color = p.danger) } },
+            confirmButton = { TextButton(onClick = { confirmDiscard = false; vm.closeEditor() }) { Text(stringResource(R.string.action_discard), color = p.error) } },
             dismissButton = { TextButton(onClick = { confirmDiscard = false }) { Text(stringResource(R.string.action_keep_editing)) } },
         )
     }
@@ -294,19 +284,19 @@ fun EventEditorScreen(vm: SunlithViewModel, active: Boolean) {
 
 @Composable
 fun DeleteDialog(series: Boolean, onDismiss: () -> Unit, onConfirm: () -> Unit) {
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(if (series) R.string.delete_series_title else R.string.delete_event_title)) },
         text = { Text(stringResource(if (series) R.string.delete_series_body else R.string.delete_event_body)) },
-        confirmButton = { TextButton(onClick = onConfirm) { Text(stringResource(if (series) R.string.action_delete_series else R.string.action_delete), color = p.danger) } },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(stringResource(if (series) R.string.action_delete_series else R.string.action_delete), color = p.error) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
     )
 }
 
 @Composable
 private fun CalendarChooser(state: EditorState, writable: List<DeviceCalendar>, vm: SunlithViewModel) {
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     var open by remember { mutableStateOf(false) }
     val current = vm.calendars.firstOrNull { it.id == state.calendarId }
     if (writable.isEmpty()) {
@@ -330,7 +320,7 @@ private fun CalendarChooser(state: EditorState, writable: List<DeviceCalendar>, 
                     state.lockedCalendar -> stringResource(R.string.editor_calendar_locked, current.account)
                     else -> current.account.takeIf { !current.local && it.isNotBlank() && it != current.name }
                 }
-                sub?.let { Text(it, color = p.muted, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                sub?.let { Text(it, color = p.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
             }
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
@@ -340,7 +330,7 @@ private fun CalendarChooser(state: EditorState, writable: List<DeviceCalendar>, 
                     text = {
                         Column {
                             Text(cal.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            if (!cal.local && cal.account.isNotBlank() && cal.account != cal.name) Text(cal.account, color = p.muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (!cal.local && cal.account.isNotBlank() && cal.account != cal.name) Text(cal.account, color = p.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     },
                     onClick = { open = false; vm.updateEditor { it.copy(calendarId = cal.id) } },
@@ -352,7 +342,7 @@ private fun CalendarChooser(state: EditorState, writable: List<DeviceCalendar>, 
 
 @Composable
 private fun RepeatChooser(state: EditorState, vm: SunlithViewModel, f: Formats) {
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     var open by remember { mutableStateOf(false) }
     val originalCustom = state.originalRrule?.takeIf { RepeatPreset.match(it) == null }
     Box {
@@ -360,7 +350,7 @@ private fun RepeatChooser(state: EditorState, vm: SunlithViewModel, f: Formats) 
             Column(Modifier.weight(1f)) {
                 Text(f.repeat(state.rrule), style = MaterialTheme.typography.bodyLarge)
                 if (state.rrule != null && RepeatPreset.match(state.rrule) == null) {
-                    Text(stringResource(R.string.editor_custom_kept), color = p.muted, style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.editor_custom_kept), color = p.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -378,8 +368,8 @@ private fun RepeatChooser(state: EditorState, vm: SunlithViewModel, f: Formats) 
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
 private fun DateTimeRow(label: String, date: String, dateLabel: String, timeLabel: String, time: String?, error: Boolean, onDate: () -> Unit, onTime: () -> Unit) {
-    val p = LocalPalette.current
-    val color = if (error) p.danger else p.ink
+    val p = MaterialTheme.colorScheme
+    val color = if (error) p.error else p.onSurface
     val errorMessage = if (error) stringResource(R.string.editor_end_before_start) else null
     val density = LocalDensity.current
     val measurer = rememberTextMeasurer()
@@ -389,7 +379,7 @@ private fun DateTimeRow(label: String, date: String, dateLabel: String, timeLabe
     BoxWithConstraints(Modifier.fillMaxWidth().padding(start = 56.dp, end = 8.dp)) {
         val labelAbove = dateWidth > maxWidth - 72.dp
         FlowRow(Modifier.fillMaxWidth(), itemVerticalAlignment = Alignment.CenterVertically) {
-            Text(label, if (labelAbove) Modifier.fillMaxWidth() else Modifier.width(72.dp), color = p.muted,
+            Text(label, if (labelAbove) Modifier.fillMaxWidth() else Modifier.width(72.dp), color = p.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             FlowRow(if (labelAbove) Modifier.fillMaxWidth() else Modifier.weight(1f),
                 horizontalArrangement = Arrangement.SpaceBetween, itemVerticalAlignment = Alignment.CenterVertically) {
@@ -417,13 +407,13 @@ private fun PickerText(text: String, label: String, color: Color, errorMessage: 
 
 @Composable
 private fun EditorRow(icon: ImageVector, onClick: (() -> Unit)?, modifier: Modifier = Modifier, content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     val base = modifier.fillMaxWidth().heightIn(min = 56.dp)
     Row(
         (if (onClick != null) base.clickable(role = Role.Button, onClick = onClick) else base).padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, null, tint = p.muted, modifier = Modifier.size(24.dp))
+        Icon(icon, null, tint = p.onSurfaceVariant, modifier = Modifier.size(24.dp))
         Spacer(Modifier.width(16.dp))
         content()
     }
@@ -431,9 +421,9 @@ private fun EditorRow(icon: ImageVector, onClick: (() -> Unit)?, modifier: Modif
 
 @Composable
 private fun EditorField(icon: ImageVector, value: String, hint: String, singleLine: Boolean, onChange: (String) -> Unit) {
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 16.dp), verticalAlignment = if (singleLine) Alignment.CenterVertically else Alignment.Top) {
-        Icon(icon, null, tint = p.muted, modifier = Modifier.padding(top = if (singleLine) 0.dp else 16.dp).size(24.dp))
+        Icon(icon, null, tint = p.onSurfaceVariant, modifier = Modifier.padding(top = if (singleLine) 0.dp else 16.dp).size(24.dp))
         TextField(
             value = value, onValueChange = onChange, modifier = Modifier.weight(1f),
             label = { Text(hint) }, colors = plainFieldColors(), singleLine = singleLine,
@@ -449,27 +439,18 @@ fun plainFieldColors() = TextFieldDefaults.colors(
 )
 
 @Composable
-fun switchColors() = LocalPalette.current.let { p ->
-    SwitchDefaults.colors(
-        checkedThumbColor = p.onAccent, checkedTrackColor = p.accent, checkedBorderColor = p.accent,
-        uncheckedThumbColor = p.muted, uncheckedTrackColor = p.raised, uncheckedBorderColor = p.faint,
-    )
-}
-
-@Composable
 fun ColorDot(color: Int, modifier: Modifier = Modifier) {
-    val p = LocalPalette.current
-    Box(modifier.size(12.dp).background(eventTint(color, p), CircleShape))
+    Box(modifier.size(12.dp).background(eventTint(color), CircleShape))
 }
 
 @Composable
 fun DatePick(initial: LocalDate, onDismiss: () -> Unit, onPick: (LocalDate) -> Unit) {
-    val state = rememberDatePickerState(initialSelectedDateMillis = initial.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli())
+    val state = rememberDatePickerState(initialSelectedDateMillis = CalendarDates.allDayMillis(initial))
     DatePickerDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
             TextButton(onClick = {
-                state.selectedDateMillis?.let { onPick(Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate()) }
+                state.selectedDateMillis?.let { onPick(CalendarDates.allDayDate(it)) }
                 onDismiss()
             }) { Text(stringResource(R.string.action_ok)) }
         },

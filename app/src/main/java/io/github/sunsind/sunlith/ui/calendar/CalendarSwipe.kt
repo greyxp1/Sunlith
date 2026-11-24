@@ -24,6 +24,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,6 +46,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.LayoutDirection
+import io.github.sunsind.sunlith.ui.ViewMode
 import kotlin.math.abs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -313,6 +315,86 @@ internal fun PagedPeriod(
     ) { page ->
         Box((if (wrap) Modifier.fillMaxWidth() else Modifier.fillMaxSize()).then(if (page == expected) Modifier else Modifier.clearAndSetSemantics { })) {
             content(origin + page - center)
+        }
+    }
+}
+
+// Keep positions adjacent across the wrap so Month and Day slide in the same direction as any other pair.
+internal fun viewModeAt(index: Int): ViewMode = ViewMode.entries[index.mod(ViewMode.entries.size)]
+
+/** The sideways slide between Month, Week and Day, and the toolbar's lean while a swipe on it is under way. */
+internal class CalendarViewSwipe(mode: ViewMode, private val select: (ViewMode) -> Unit) {
+    var position by mutableFloatStateOf(mode.ordinal.toFloat())
+        private set
+    var pill by mutableFloatStateOf(0f)
+        private set
+
+    private var committed = mode
+    private var destination by mutableIntStateOf(mode.ordinal)
+    private var settle: Job? = null
+    private var origin = position
+    private var pillOrigin = 0f
+    private var dragging = false
+
+    fun peek(delta: Int): ViewMode = viewModeAt(destination + delta)
+
+    fun isShowing(mode: ViewMode): Boolean = position == destination.toFloat() && peek(0) == mode
+
+    fun drag(pull: Float, pagePull: Float) {
+        if (!dragging) {
+            settle?.cancel()
+            dragging = true
+            origin = position
+            pillOrigin = pill
+        }
+        val next = origin + pagePull * 0.85f
+        position = next.coerceIn(minOf(origin, destination - 1f), maxOf(origin, destination + 1f))
+        pill = (pillOrigin + pull / (0.14f + abs(pull))).coerceIn(-1f, 1f)
+    }
+
+    fun release(delta: Int, speed: Float, motion: Boolean, scope: CoroutineScope) {
+        dragging = false
+        slide(destination + delta, motion, scope, speed)
+    }
+
+    fun sync(mode: ViewMode, motion: Boolean, scope: CoroutineScope) {
+        if (mode != committed) {
+            committed = mode
+            dragging = false
+            slide(destination + mode.ordinal - peek(0).ordinal, motion, scope)
+        } else if (!motion && !dragging && (position != destination.toFloat() || pill != 0f)) {
+            slide(destination, false, scope)
+        }
+    }
+
+    private fun slide(target: Int, motion: Boolean, scope: CoroutineScope, speed: Float = 0f) {
+        settle?.cancel()
+        val start = position
+        destination = target
+        val startPill = pill
+        val end = target.toFloat()
+        val mode = viewModeAt(target)
+        if (!motion || (start == end && startPill == 0f)) {
+            position = end
+            pill = 0f
+            committed = mode
+            select(mode)
+            return
+        }
+        // Commit the view only once it owns the screen. A second swipe can retarget the visible slide without
+        // activating and repositioning a calendar page that the user is still swiping past.
+        settle = scope.launch {
+            val remaining = end - start
+            val momentum = if (speed * remaining > 0f) (speed * 0.55f / remaining).coerceAtMost(5f) else 0f
+            animate(0f, 1f, initialVelocity = momentum, animationSpec = spring(stiffness = 650f, visibilityThreshold = 0.003f)) { value, _ ->
+                val fraction = value.coerceIn(0f, 1f)
+                position = start + remaining * fraction
+                pill = startPill * (1f - fraction)
+            }
+            position = end
+            pill = 0f
+            committed = mode
+            select(mode)
         }
     }
 }

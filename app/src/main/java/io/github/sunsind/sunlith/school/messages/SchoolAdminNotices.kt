@@ -1,5 +1,15 @@
-package io.github.sunsind.sunlith.school
+package io.github.sunsind.sunlith.school.messages
 
+import io.github.sunsind.sunlith.school.SchoolError
+import io.github.sunsind.sunlith.school.portal.HtmlCell
+import io.github.sunsind.sunlith.school.portal.HtmlLink
+import io.github.sunsind.sunlith.school.portal.HtmlTable
+import io.github.sunsind.sunlith.school.portal.SchoolHtml
+import io.github.sunsind.sunlith.school.sync.SchoolFailure
+import io.github.sunsind.sunlith.school.sync.SchoolItem
+import io.github.sunsind.sunlith.school.sync.schoolHash
+import io.github.sunsind.sunlith.school.sync.schoolRequire
+import io.github.sunsind.sunlith.school.sync.text
 import java.net.URI
 import java.time.Instant
 import java.time.LocalDate

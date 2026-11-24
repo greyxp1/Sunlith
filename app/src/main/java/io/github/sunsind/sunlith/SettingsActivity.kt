@@ -3,8 +3,8 @@ package io.github.sunsind.sunlith
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
-import android.os.Bundle
 import android.net.Uri
+import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -12,19 +12,20 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.Lifecycle
-import io.github.sunsind.sunlith.school.SchoolMessagesManager
-import io.github.sunsind.sunlith.school.SchoolScheduleManager
-import io.github.sunsind.sunlith.ui.settings.CalendarsScreen
 import io.github.sunsind.sunlith.device.DeviceLinkScreen
-import io.github.sunsind.sunlith.school.SchoolMessagesScreen
-import io.github.sunsind.sunlith.school.SchoolScheduleScreen
-import io.github.sunsind.sunlith.ui.settings.SettingsScreen
+import io.github.sunsind.sunlith.school.messages.SchoolMessagesManager
+import io.github.sunsind.sunlith.school.messages.SchoolMessagesScreen
+import io.github.sunsind.sunlith.school.sync.SchoolScheduleManager
+import io.github.sunsind.sunlith.school.sync.SchoolScheduleScreen
 import io.github.sunsind.sunlith.ui.SunlithViewModel
 import io.github.sunsind.sunlith.ui.SunlithWindow
+import io.github.sunsind.sunlith.ui.settings.CalendarsScreen
+import io.github.sunsind.sunlith.ui.settings.NotificationsScreen
+import io.github.sunsind.sunlith.ui.settings.SettingsScreen
 
 /** Each full-page settings entry has a window, so Android owns opening and returning. */
 class SettingsActivity : ComponentActivity() {
-    internal enum class Page { Settings, Calendars, Computer, School, Messages, Notices, Message }
+    internal enum class Page { Settings, Notifications, Calendars, Computer, School, Messages, Notices, Message }
 
     private val vm: SunlithViewModel by viewModels()
 
@@ -36,12 +37,13 @@ class SettingsActivity : ComponentActivity() {
         val importUri = intent.data.takeIf { savedInstanceState?.getBoolean(REVIEW_IMPORT) != false }
         setContent {
             LaunchedEffect(vm.loaded, importUri) {
-                if (vm.loaded && importUri != null && vm.importUi == null) vm.startImport(importUri)
+                if (vm.loaded && importUri != null && vm.transfer.importUi == null) vm.transfer.startImport(importUri)
             }
             SunlithWindow(vm) {
                 BackHandler(onBack = ::finish)
                 when (page) {
                     Page.Settings -> SettingsScreen(vm)
+                    Page.Notifications -> NotificationsScreen(vm)
                     Page.Calendars -> CalendarsScreen(vm)
                     Page.Computer -> DeviceLinkScreen(vm)
                     Page.School -> {
@@ -68,7 +70,7 @@ class SettingsActivity : ComponentActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
-        outState.putBoolean(REVIEW_IMPORT, intent.data != null && (!vm.loaded || vm.importUi?.let { it.report == null } == true))
+        outState.putBoolean(REVIEW_IMPORT, intent.data != null && (!vm.loaded || vm.transfer.importUi?.let { it.report == null } == true))
         super.onSaveInstanceState(outState)
     }
 

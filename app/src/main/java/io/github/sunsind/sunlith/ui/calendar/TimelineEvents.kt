@@ -78,7 +78,6 @@ import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.data.CalendarEvent
 import io.github.sunsind.sunlith.data.key
 import io.github.sunsind.sunlith.ui.Formats
-import io.github.sunsind.sunlith.ui.LocalPalette
 import io.github.sunsind.sunlith.ui.timeLabel
 import java.time.LocalDate
 import java.time.ZoneId
@@ -259,7 +258,7 @@ internal fun DayColumn(
         if (readableLabels) (minute - DAY_MINUTES).coerceAtLeast(0) / 60f * axis.hourPx else 0f
     val interaction = remember { MutableInteractionSource() }
     val keyboardFocused by interaction.collectIsFocusedAsState()
-    val focusColor = LocalPalette.current.ink
+    val focusColor = MaterialTheme.colorScheme.onSurface
     val create by rememberUpdatedState(onNew)
     var tappedHour by remember(day) { mutableStateOf<Int?>(null) }
     LaunchedEffect(tappedHour) {
@@ -363,7 +362,7 @@ private fun EventBlock(
     // A stack's rail shows every event of the group, the first one included, since the card itself spans the group.
     val railEvents = if (more.isEmpty()) emptyList() else listOf(event) + more
     val markColors = railEvents.map { eventAccent(it) }
-    val cardBackground = LocalPalette.current.background
+    val cardBackground = MaterialTheme.colorScheme.background
     val shape = EventShape
     val origin = maxOf(originMillis, day.atStartOfDay(zone).toInstant().toEpochMilli())
     fun fraction(millis: Long) = ((millis - origin) / (shownMinutes.coerceAtLeast(1) * 60_000f)).coerceIn(0f, 1f)
@@ -528,21 +527,21 @@ private fun EventBlock(
 
 @Composable
 private fun OverflowBlock(count: Int, single: String?, modifier: Modifier, singleTodo: Boolean = false, onClick: () -> Unit) {
-    val p = LocalPalette.current
+    val p = MaterialTheme.colorScheme
     val label = single ?: LocalContext.current.resources.getQuantityString(R.plurals.event_count, count, count)
     val style = MaterialTheme.typography.labelMedium
     val measurer = rememberTextMeasurer()
     BoxWithConstraints(
         modifier.padding(TIMELINE_BLOCK_INSET).clip(EventShape)
-            .border(1.dp, p.line, EventShape).background(p.surface)
-            .calendarTap(p.ink, onClick = onClick)
+            .border(1.dp, p.outlineVariant, EventShape).background(p.surfaceContainerLow)
+            .calendarTap(p.onSurface, onClick = onClick)
             .clearAndSetSemantics { contentDescription = label; role = Role.Button; onClick { onClick(); true } },
         contentAlignment = Alignment.Center,
     ) {
         val full = if (singleTodo) "☐ +$count" else "+$count"
         val room = with(LocalDensity.current) { (maxWidth - 2.dp).roundToPx() }
         val fits = remember(full, style, room) { measurer.measure(full, style, maxLines = 1, softWrap = false).size.width <= room }
-        Text(if (fits) full else if (singleTodo) "☐" else "+", color = p.ink, style = style, maxLines = 1, softWrap = false)
+        Text(if (fits) full else if (singleTodo) "☐" else "+", color = p.onSurface, style = style, maxLines = 1, softWrap = false)
     }
 }
 
