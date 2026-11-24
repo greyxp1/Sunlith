@@ -26,6 +26,7 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -73,7 +74,8 @@ internal fun EventChooser(
 ) {
     val p = MaterialTheme.colorScheme
     val openLabel = stringResource(R.string.timeline_event_open)
-    ModalBottomSheet(onDismissRequest = onClose, dragHandle = null) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(onDismissRequest = onClose, sheetState = sheetState, dragHandle = null) {
         if (date != null) {
             Text(f.dayLong(date), Modifier.padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 12.dp).semantics { heading() }, color = p.onSurface,
                 style = MaterialTheme.typography.titleLargeEmphasized)
