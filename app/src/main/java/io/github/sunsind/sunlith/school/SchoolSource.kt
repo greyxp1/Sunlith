@@ -165,8 +165,6 @@ internal object SchoolDiff {
         val removed = old.count { it.id !in ids }
         return old.isNotEmpty() && (next.none { !it.date.isBefore(today) } || (removed >= 5 && removed * 4 >= old.size))
     }
-    fun enabled(changes: List<SchoolDelta>, preferences: SchoolNotificationPreferences): List<SchoolDelta> =
-        if (!preferences.enabled) emptyList() else changes.filter { (it.categories intersect preferences.categories).isNotEmpty() }
 }
 
 internal fun JSONArray.strings(): List<String> = (0 until length()).map { getString(it) }

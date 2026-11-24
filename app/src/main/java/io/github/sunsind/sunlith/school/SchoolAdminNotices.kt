@@ -48,7 +48,6 @@ data class SchoolClassLift(
     }
 }
 
-data class SchoolNoticeSuggestion(val id: String, val date: LocalDate, val title: String, val detail: String)
 
 internal data class SchoolAdminRow(val date: LocalDate, val subject: String, val sender: String, val link: URI?) {
     val id: String get() = schoolHash("admin\n$date\n${SchoolHtml.normalize(subject)}\n${SchoolHtml.normalize(sender)}")
@@ -151,7 +150,6 @@ internal object SchoolNoticeInterpreter {
     private val TIME = Regex("\\b(\\d{1,2})\\s?h\\s?(\\d{2})?\\b")
     private val RESUME = Regex("reprendr\\w*|reprenn\\w*|reprise")
     private val EXCEPTION = Regex("formation continue|apres \\d{1,2}\\s?h|comme prevu|telles? que planifiee?s|pourront avoir lieu|auront lieu")
-    private val DEADLINE = Regex("date limite|au plus tard|d'ici le|avant le|jusqu'au|deadline|no later than")
     private val RETRACTION = Regex("(?:pas|aucune|sans) (?:de |une )?(?:levee des cours|annulation des cours|fermeture du college)|(?:annulation|annulee?|retiree?) (?:de la |d'une |la )?levee des cours|cours[^.!?]{0,40}ne (?:sont|seront) pas (?:annules|leves|suspendus)|levee des cours[^.!?]{0,60}(?:annulee|retiree|pas decretee)")
     private val MAINTAINED = Regex("cours\\b[^.!?]{0,60}\\bmaintenus")
     private val NEGATED_MAINTENANCE = Regex("(?:\\bne\\b|\\bn')[^.!?,;:]{0,40}\\b(?:pas|plus|jamais)\\b[^.!?,;:]{0,20}\\bmaintenus|\\bnon\\s+maintenus")
@@ -311,15 +309,6 @@ internal object SchoolNoticeInterpreter {
             item.copy(collegeLift = if (lift != null && start != null && (lift.until == null || start.isBefore(lift.until))) lift.marker else "")
         }
     }
-
-    fun suggestions(notices: List<SchoolAdminNotice>, today: LocalDate, excluded: Set<LocalDate>): List<SchoolNoticeSuggestion> =
-        notices.filter { it.body != null }.flatMap { notice ->
-            sentences(notice.body.orEmpty()).filter { DEADLINE.containsMatchIn(SchoolHtml.normalize(it)) }.flatMap { sentence ->
-                dates(SchoolHtml.normalize(sentence), notice.date).filter { !it.isBefore(today) && it !in excluded }.map { date ->
-                    SchoolNoticeSuggestion(schoolHash("suggest\n${notice.id}\n$date\n$sentence").take(24), date, notice.subject, sentence.take(400))
-                }
-            }
-        }.distinctBy { it.id }.sortedBy { it.date }.take(30)
 
     /** Calendar notice items, written in the notice's French. Class marking separately requires confirmed full-body scope evidence. */
     fun items(notices: List<SchoolCollegeNotice>): List<SchoolItem> = notices.map { n ->

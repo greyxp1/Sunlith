@@ -27,10 +27,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -38,11 +40,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
@@ -79,11 +79,11 @@ import io.github.sunsind.sunlith.data.CalendarEvent
 import io.github.sunsind.sunlith.data.key
 import io.github.sunsind.sunlith.ui.Formats
 import io.github.sunsind.sunlith.ui.LocalPalette
-import io.github.sunsind.sunlith.ui.rememberPageSource
 import io.github.sunsind.sunlith.ui.timeLabel
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.math.max
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 
 private const val DAY_MINUTES = 24 * 60
@@ -229,15 +229,11 @@ internal fun AllDayChip(
     val endpoint = morph?.endpoint(event, day, inList = false, EVENT_CORNER)
     val bounds = Modifier.fillMaxWidth().heightIn(min = 48.dp)
     val card = if (endpoint == null) bounds else morph.card(bounds, endpoint, day)
-    val source = rememberPageSource()
-    val open = { source.open(action = onClick) }
     Box(
         card.clip(shape).background(colors.container)
-            .then(source.modifier)
             .focusRing(highlight, colors.content, shape, motion)
-            .calendarPress(colors.content)
-            .clickable(role = Role.Button, onClick = open)
-            .clearAndSetSemantics { contentDescription = description; role = Role.Button; onClick { open(); true } }
+            .calendarTap(colors.content, onClick = onClick)
+            .clearAndSetSemantics { contentDescription = description; role = Role.Button; onClick { onClick(); true } }
             .padding(horizontal = 6.dp, vertical = 4.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
@@ -265,17 +261,28 @@ internal fun DayColumn(
     val keyboardFocused by interaction.collectIsFocusedAsState()
     val focusColor = LocalPalette.current.ink
     val create by rememberUpdatedState(onNew)
-    val source = rememberPageSource()
+    var tappedHour by remember(day) { mutableStateOf<Int?>(null) }
+    LaunchedEffect(tappedHour) {
+        if (tappedHour != null) {
+            delay(120)
+            tappedHour = null
+        }
+    }
     BoxWithConstraints(
         modifier.then(if (keyboardFocused) Modifier.border(2.dp, focusColor, RoundedCornerShape(6.dp)) else Modifier),
     ) {
         // Event cards take taps above this layer. Keep the clickable action for keyboard and accessibility.
         Box(Modifier.matchParentSize()
-            .then(source.modifier)
-            .calendarPress { position -> drawTimelineTile(axis, axis.hourAt(position.y), focusColor.copy(alpha = 0.22f)) }
+            .drawBehind {
+                tappedHour?.let { drawTimelineTile(axis, it, focusColor.copy(alpha = 0.22f)) }
+            }
             .clickable(interactionSource = interaction, indication = null, onClickLabel = addLabel, role = Role.Button) { create(day, null) }
-            .pointerInput(day, axis, source) {
-                detectTapGestures { position -> source.open(position) { create(day, axis.hourAt(position.y)) } }
+            .pointerInput(day, axis) {
+                detectTapGestures { position ->
+                    val hour = axis.hourAt(position.y)
+                    tappedHour = hour
+                    create(day, hour)
+                }
             })
         val context = LocalContext.current
         fun height(start: Int, end: Int) =
@@ -370,7 +377,6 @@ private fun EventBlock(
     // How far down the card the current time is, while the class runs.
     val now = clock?.let { (day.atStartOfDay(zone).toInstant().toEpochMilli() + it.value * 60_000L - origin) / (shownMinutes.coerceAtLeast(1) * 60_000f) }
         ?.takeIf { it > 0f && it < 1f }
-    val halo = if (now == null) null else Shadow(colors.container, blurRadius = 6f)
     val nowColor = remember(colors) { nowMark(colors) }
     val canceled = event.canceled
     val rail = 3.dp
@@ -389,17 +395,11 @@ private fun EventBlock(
     val endpoint = if (more.isEmpty()) morph?.endpoint(event, day, inList = false, EVENT_CORNER) else null
     if (endpoint != null) SideEffect { endpoint.nowLine = now?.let { AgendaNowLine(it, nowColor) } }
     val card = if (morph != null && endpoint != null) morph.card(inset, endpoint, day) else inset
-    val source = rememberPageSource()
-    val open = { source.open(action = onClick) }
     CompositionLocalProvider(LocalViewConfiguration provides cardConfiguration) {
         BoxWithConstraints(
             card.clip(shape).background(colors.container)
-                .then(source.modifier)
-                .then(if (now == null) Modifier else Modifier.drawWithContent {
-                    // While the class runs, the current time is a rounded bar inside the card, under its text, whose halo
-                    // keeps the two apart.
+                .then(if (now == null) Modifier else Modifier.drawBehind {
                     drawNowBar(nowColor, now * size.height)
-                    drawContent()
                 })
                 .then(if (!canceled && missed.isEmpty() && marks.isEmpty()) Modifier else Modifier.drawBehind {
                     val rtl = layoutDirection == LayoutDirection.Rtl
@@ -421,9 +421,8 @@ private fun EventBlock(
                     }
                 })
                 .focusRing(highlight, colors.content, shape, motion)
-                .calendarPress(colors.content)
-                .clickable(role = Role.Button, onClick = open)
-                .clearAndSetSemantics { contentDescription = description; role = Role.Button; onClick { open(); true } }
+                .calendarTap(colors.content, onClick = onClick)
+                .clearAndSetSemantics { contentDescription = description; role = Role.Button; onClick { onClick(); true } }
                 .holdLayout(held, heldSize),
         ) {
             val density = LocalDensity.current
@@ -443,8 +442,8 @@ private fun EventBlock(
             }
             val titleStyle = (if (innerHeight >= preferredHeight) preferredStyle else baseStyle)
                 .copy(fontWeight = FontWeight.SemiBold, hyphens = Hyphens.Auto, lineBreak = LineBreak.Paragraph,
-                    localeList = LocaleList(f.locale.toLanguageTag()), shadow = halo)
-            val detailStyle = (if (wide) typography.bodySmall else typography.labelSmall).copy(shadow = halo)
+                    localeList = LocaleList(f.locale.toLanguageTag()))
+            val detailStyle = if (wide) typography.bodySmall else typography.labelSmall
             val statusStyle = detailStyle.copy(fontWeight = FontWeight.Bold)
             val padH = when {
                 narrow -> 3.dp
@@ -533,15 +532,11 @@ private fun OverflowBlock(count: Int, single: String?, modifier: Modifier, singl
     val label = single ?: LocalContext.current.resources.getQuantityString(R.plurals.event_count, count, count)
     val style = MaterialTheme.typography.labelMedium
     val measurer = rememberTextMeasurer()
-    val source = rememberPageSource()
-    val open = { source.open(action = onClick) }
     BoxWithConstraints(
         modifier.padding(TIMELINE_BLOCK_INSET).clip(EventShape)
             .border(1.dp, p.line, EventShape).background(p.surface)
-            .then(source.modifier)
-            .calendarPress(p.ink)
-            .clickable(role = Role.Button, onClick = open)
-            .clearAndSetSemantics { contentDescription = label; role = Role.Button; onClick { open(); true } },
+            .calendarTap(p.ink, onClick = onClick)
+            .clearAndSetSemantics { contentDescription = label; role = Role.Button; onClick { onClick(); true } },
         contentAlignment = Alignment.Center,
     ) {
         val full = if (singleTodo) "☐ +$count" else "+$count"

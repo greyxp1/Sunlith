@@ -70,7 +70,6 @@ import io.github.sunsind.sunlith.data.key
 import io.github.sunsind.sunlith.data.span
 import io.github.sunsind.sunlith.ui.LocalPalette
 import io.github.sunsind.sunlith.ui.Screen
-import io.github.sunsind.sunlith.ui.ScreenTopBar
 import io.github.sunsind.sunlith.ui.SunlithViewModel
 import io.github.sunsind.sunlith.ui.calendar.absenceStatus
 import io.github.sunsind.sunlith.ui.calendar.displayTitle
@@ -133,28 +132,27 @@ fun DetailsScreen(vm: SunlithViewModel, opened: CalendarEvent) {
     val periods = school?.periods.orEmpty().sortedBy { it.startMillis }.takeIf { it.size > 1 }.orEmpty()
     val absences = school?.absences.orEmpty().sortedBy { it.startMillis }
 
-    Scaffold(
-        containerColor = p.background,
-        topBar = {
-            ScreenTopBar(title = "", onNavigate = vm::back) {
-                if (writable && permissionsLoaded && blockReason == null) {
-                    IconButton(onClick = { if (series) confirmSeriesEdit = true else vm.editEvent(event.id) }) {
-                        Icon(Icons.Outlined.Edit, stringResource(R.string.action_edit), tint = p.ink)
-                    }
-                    IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Outlined.Delete, stringResource(R.string.action_delete), tint = p.ink) }
-                }
-            }
-        },
-    ) { pad ->
+    Scaffold(containerColor = p.background) { pad ->
         Column(Modifier.fillMaxSize().padding(pad).verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 32.dp)) {
-            Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.Top) {
-                Box(Modifier.padding(top = 8.dp).size(14.dp).background(eventAccent(event), RoundedCornerShape(4.dp)))
+            Row(
+                Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(14.dp).background(eventAccent(event), RoundedCornerShape(4.dp)))
                 Spacer(Modifier.width(16.dp))
-                SelectionContainer {
+                SelectionContainer(Modifier.weight(1f)) {
                     Text(
                         event.displayTitle().ifBlank { stringResource(R.string.untitled) }, color = p.ink,
                         style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() },
                     )
+                }
+                if (writable && permissionsLoaded && blockReason == null) {
+                    IconButton(onClick = { if (series) confirmSeriesEdit = true else vm.editEvent(event.id) }) {
+                        Icon(Icons.Outlined.Edit, stringResource(R.string.action_edit), tint = p.ink)
+                    }
+                    IconButton(onClick = { confirmDelete = true }) {
+                        Icon(Icons.Outlined.Delete, stringResource(R.string.action_delete), tint = p.ink)
+                    }
                 }
             }
             absenceStatus(event, f)?.let { status ->

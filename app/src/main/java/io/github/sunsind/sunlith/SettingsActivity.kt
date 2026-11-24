@@ -11,25 +11,20 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.lifecycle.Lifecycle
 import io.github.sunsind.sunlith.school.SchoolMessagesManager
 import io.github.sunsind.sunlith.school.SchoolScheduleManager
 import io.github.sunsind.sunlith.ui.settings.CalendarsScreen
 import io.github.sunsind.sunlith.device.DeviceLinkScreen
-import io.github.sunsind.sunlith.ui.event.EventEditorScreen
-import io.github.sunsind.sunlith.ui.PageEntrance
 import io.github.sunsind.sunlith.school.SchoolMessagesScreen
-import io.github.sunsind.sunlith.school.SchoolPage
 import io.github.sunsind.sunlith.school.SchoolScheduleScreen
-import io.github.sunsind.sunlith.ui.Screen
 import io.github.sunsind.sunlith.ui.settings.SettingsScreen
 import io.github.sunsind.sunlith.ui.SunlithViewModel
 import io.github.sunsind.sunlith.ui.SunlithWindow
 
 /** Each full-page settings entry has a window, so Android owns opening and returning. */
 class SettingsActivity : ComponentActivity() {
-    internal enum class Page { Settings, Calendars, Computer, History, Diagnostics, School, Alerts, Connection, Messages, Message }
+    internal enum class Page { Settings, Calendars, Computer, History, Diagnostics, School, Messages, Notices, Message }
 
     private val vm: SunlithViewModel by viewModels()
 
@@ -46,47 +41,30 @@ class SettingsActivity : ComponentActivity() {
             SunlithWindow(vm) {
                 BackHandler(onBack = ::finish)
                 when (page) {
-                    Page.Settings -> SettingsScreen(vm, onBack = ::finish)
-                    Page.Calendars -> CalendarsScreen(vm, onBack = ::finish)
+                    Page.Settings -> SettingsScreen(vm)
+                    Page.Calendars -> CalendarsScreen(vm)
                     Page.Computer, Page.History, Page.Diagnostics -> DeviceLinkScreen(
-                        vm, onBack = ::finish,
+                        vm,
                         page = page, onOpenPage = { open(this, it) },
                     )
-                    Page.School, Page.Alerts, Page.Connection -> {
+                    Page.School -> {
                         val controller = SchoolScheduleManager.get(applicationContext)
                         LaunchedEffect(controller) { controller.onOpen() }
-                        SchoolScheduleScreen(
-                            controller, onBack = ::finish, onChooseCalendars = ::finish,
-                            onOpenMessages = { open(this, Page.Messages) },
-                            initialPage = when (page) {
-                                Page.Alerts -> SchoolPage.Alerts
-                                Page.Connection -> SchoolPage.Connection
-                                else -> SchoolPage.Overview
-                            },
-                            onOpenPage = { open(this, if (it == SchoolPage.Alerts) Page.Alerts else Page.Connection) },
-                        )
+                        SchoolScheduleScreen(controller)
                     }
-                    Page.Messages, Page.Message -> {
-                        val state = rememberSaveableStateHolder()
-                        if (vm.stack.lastOrNull() == Screen.Editor) {
-                            BackHandler(onBack = vm::back)
-                            PageEntrance { EventEditorScreen(vm) }
-                        } else state.SaveableStateProvider("messages") {
-                            SchoolMessagesScreen(
-                                SchoolMessagesManager.get(applicationContext), onBack = ::finish,
-                                messageId = intent.getStringExtra(EXTRA_MESSAGE),
-                                onOpenMessage = { id ->
-                                    startActivity(pageIntent(this, Page.Message).putExtra(EXTRA_MESSAGE, id))
-                                },
-                                onAddSuggestion = vm::addSchoolSuggestion,
-                                onOpenDate = { date ->
-                                    startActivity(Intent(this, MainActivity::class.java)
-                                        .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                                        .putExtra(MainActivity.EXTRA_SCHOOL_DATE, date.toString()))
-                                },
-                            )
-                        }
-                    }
+                    Page.Messages, Page.Notices, Page.Message -> SchoolMessagesScreen(
+                        SchoolMessagesManager.get(applicationContext),
+                        messageId = intent.getStringExtra(EXTRA_MESSAGE),
+                        showNotices = page == Page.Notices,
+                        onOpenMessage = { id ->
+                            startActivity(pageIntent(this, Page.Message).putExtra(EXTRA_MESSAGE, id))
+                        },
+                        onOpenDate = { date ->
+                            startActivity(Intent(this, MainActivity::class.java)
+                                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                                .putExtra(MainActivity.EXTRA_SCHOOL_DATE, date.toString()))
+                        },
+                    )
                 }
             }
         }
@@ -100,6 +78,11 @@ class SettingsActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         vm.onResume(settingsWindow = true)
+    }
+
+    override fun onStop() {
+        vm.onStop()
+        super.onStop()
     }
 
     companion object {
@@ -119,11 +102,12 @@ class SettingsActivity : ComponentActivity() {
         }
 
         internal fun openRequested(context: Context, page: Page) {
-            if (page == Page.School || page == Page.Messages) {
-                val parents = listOf(Page.Settings, Page.Calendars, Page.School)
-                val pages = if (page == Page.Messages) parents + page else parents
-                context.startActivities(pages.map { pageIntent(context, it) }.toTypedArray())
-            } else open(context, page)
+            when (page) {
+                Page.School -> context.startActivities(listOf(Page.Settings, Page.Calendars, Page.School)
+                    .map { pageIntent(context, it) }.toTypedArray())
+                Page.Messages, Page.Notices -> context.startActivity(pageIntent(context, page))
+                else -> open(context, page)
+            }
         }
 
         internal fun openImport(context: Context, uri: Uri) {

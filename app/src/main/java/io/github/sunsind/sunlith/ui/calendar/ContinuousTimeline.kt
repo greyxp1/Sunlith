@@ -231,7 +231,7 @@ internal fun ContinuousTimeline(
     val todayMinute by rememberUpdatedState {
         val minute = clock.value
         if (vm.loadError != null && !vm.loadingEvents) previousHour(minute)
-        else timelineTodayMinute(vm.eventsByDay[today].orEmpty().filter { !it.isTimelineBanner() }, today, zone, System.currentTimeMillis(), minute)
+        else timelineTodayMinute(timed[today].orEmpty(), today, zone, System.currentTimeMillis(), minute)
     }
     LaunchedEffect(axis, today, clock, topPx, onDirectionChanged) {
         snapshotFlow {
@@ -274,9 +274,10 @@ internal fun ContinuousTimeline(
     LaunchedEffect(active, vm.timelineNavigationRequest, zoom.pinching, motion) {
         if (!active) return@LaunchedEffect
         val request = vm.timelineNavigationRequest
+        val pending = request != vm.handledTimelineNavigation
+        if (mode == ViewMode.Week && !pending) return@LaunchedEffect
         var completed = false
         try {
-            val pending = request != vm.handledTimelineNavigation
             val todayRequest = pending && vm.isTimelineToday(mode, request)
             val glide = motion && todayRequest
             if (pending) fling.stop()
@@ -382,6 +383,17 @@ internal fun ContinuousTimeline(
         val previewDay = if (!active && mode == ViewMode.Day && vm.viewMode != ViewMode.Day) date(start) else null
         val landingDay = previewDay ?: vm.selectedDate
         when {
+            // Week is visible during the pill swipe. Place it once on its first frame so activation or a
+            // later event load cannot move the hours under the user's finger.
+            mode == ViewMode.Week && firstPosition && !todayRequest -> {
+                firstPosition = false
+                when {
+                    scroll.value != 0 -> null
+                    vm.selectedDateFor(mode) == today && index(today) in bandIndices.value ->
+                        timelineSnapScroll(axis, todayMinute(), bandExtent.intValue)
+                    else -> axis.minuteToY(7 * 60)
+                }
+            }
             (!active && previewDay == null) || zoom.live != null || zoom.pinching || (todayRequest && motion) -> null
             (firstPosition || turnToToday) && landingDay == today &&
                 (vm.loadingEvents || (vm.loadError == null && !vm.coversRange(today, today)) ||

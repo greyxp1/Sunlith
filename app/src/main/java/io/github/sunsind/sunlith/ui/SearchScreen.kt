@@ -11,14 +11,19 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -45,6 +50,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -58,7 +64,9 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
@@ -83,10 +91,11 @@ import java.time.ZoneId
 import kotlinx.coroutines.launch
 
 @Composable
-fun SearchScreen(vm: SunlithViewModel) {
+fun SearchScreen(vm: SunlithViewModel, active: Boolean) {
     val p = LocalPalette.current
     val f = rememberFormats()
     val focus = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
     val searchLabel = stringResource(R.string.search_hint)
     val keyboard = LocalSoftwareKeyboardController.current
     val zone = ZoneId.systemDefault()
@@ -172,9 +181,9 @@ fun SearchScreen(vm: SunlithViewModel) {
         }
     }
     val opened by remember(morph) { derivedStateOf { morph.progress >= 1f } }
-    LaunchedEffect(focus) {
+    LaunchedEffect(focus, active) {
         // Start the IME as the search bar moves into place.
-        focus.requestFocus()
+        if (active) focus.requestFocus() else focusManager.clearFocus()
     }
     Scaffold(
         // The results are gone by the time the bar is halfway back down.
@@ -218,17 +227,25 @@ fun SearchScreen(vm: SunlithViewModel) {
             }
         },
     ) { pad ->
-        // The last results fade out above the keyboard rather than being cut off by it.
-        val fade = with(LocalDensity.current) { 48.dp.toPx() }
+        val listState = rememberLazyListState()
+        val direction = LocalLayoutDirection.current
+        // Reserve space at the end of the list so even the last result can scroll clear of the keyboard.
+        val bottomInset = maxOf(pad.calculateBottomPadding(), WindowInsets.ime.asPaddingValues().calculateBottomPadding())
         LazyColumn(
-            Modifier.fillMaxSize().padding(pad).imePadding()
+            Modifier.fillMaxSize().padding(
+                start = pad.calculateStartPadding(direction), top = pad.calculateTopPadding(), end = pad.calculateEndPadding(direction),
+            )
                 .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                 .drawWithContent {
                     drawContent()
-                    drawRect(Brush.verticalGradient(0f to Color.Black, 1f to Color.Transparent, startY = size.height - fade, endY = size.height),
-                        topLeft = Offset(0f, size.height - fade), blendMode = BlendMode.DstIn)
+                    if (listState.canScrollBackward) {
+                        val fade = 18.dp.toPx().coerceAtMost(size.height)
+                        if (fade > 0f) drawRect(Brush.verticalGradient(listOf(Color.Transparent, Color.Black), endY = fade),
+                            size = Size(size.width, fade), blendMode = BlendMode.DstIn)
+                    }
                 },
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            state = listState,
+            contentPadding = PaddingValues(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 8.dp + bottomInset),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             when {

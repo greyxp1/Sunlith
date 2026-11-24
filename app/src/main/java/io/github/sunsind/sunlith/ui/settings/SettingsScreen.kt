@@ -34,6 +34,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ArrowDropDown
@@ -120,7 +121,7 @@ fun Context.openAppSettings() {
  * apply to the home-screen widget alone.
  */
 @Composable
-fun SettingsScreen(vm: SunlithViewModel, widget: Boolean = false, onBack: () -> Unit = vm::back) {
+fun SettingsScreen(vm: SunlithViewModel, widget: Boolean = false) {
     val p = LocalPalette.current
     val context = LocalContext.current
     var help by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -140,7 +141,7 @@ fun SettingsScreen(vm: SunlithViewModel, widget: Boolean = false, onBack: () -> 
     }
 
     val title = stringResource(if (widget) R.string.widget_settings_title else R.string.title_settings)
-    Scaffold(containerColor = p.background, topBar = { ScreenTopBar(title, onNavigate = onBack) }) { pad ->
+    Scaffold(containerColor = p.background, topBar = { ScreenTopBar(title) }) { pad ->
         Column(Modifier.fillMaxSize().padding(pad).consumeWindowInsets(pad).verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
             when (widget) {
                 // One page with no section titles: dividers split what is changed often from the calendars and files,
@@ -168,8 +169,8 @@ fun SettingsScreen(vm: SunlithViewModel, widget: Boolean = false, onBack: () -> 
                     }
 
                     SettingsDivider()
-                    ClickRow(stringResource(R.string.title_calendars)) { SettingsActivity.open(context, SettingsActivity.Page.Calendars) }
-                    ClickRow(stringResource(R.string.device_link_title)) { SettingsActivity.open(context, SettingsActivity.Page.Computer) }
+                    ClickRow(stringResource(R.string.title_calendars), icon = Icons.AutoMirrored.Outlined.KeyboardArrowRight) { SettingsActivity.open(context, SettingsActivity.Page.Calendars) }
+                    ClickRow(stringResource(R.string.device_link_title), icon = Icons.AutoMirrored.Outlined.KeyboardArrowRight) { SettingsActivity.open(context, SettingsActivity.Page.Computer) }
                     ClickRow(stringResource(R.string.settings_import)) {
                         try { importLauncher.launch(IcsTypes) } catch (_: ActivityNotFoundException) { vm.message(context.getString(R.string.msg_no_file_picker)) }
                     }
@@ -471,14 +472,13 @@ private fun Messages(messages: List<String>) {
 }
 
 @Composable
-fun CalendarsScreen(vm: SunlithViewModel, onBack: () -> Unit = vm::back) {
+fun CalendarsScreen(vm: SunlithViewModel) {
     val context = LocalContext.current
     val p = LocalPalette.current
     val error = vm.loadError
     val calendarsKnown = vm.calendars.isNotEmpty() || (vm.loaded && error == null)
-    Scaffold(containerColor = p.background, topBar = { ScreenTopBar(stringResource(R.string.title_calendars), onNavigate = onBack) }) { pad ->
+    Scaffold(containerColor = p.background, topBar = { ScreenTopBar(stringResource(R.string.title_calendars)) }) { pad ->
         LazyColumn(Modifier.fillMaxSize().padding(pad), contentPadding = PaddingValues(bottom = 48.dp)) {
-            item { Note(stringResource(R.string.calendars_intro)) }
             if (vm.calendars.isEmpty()) {
                 when {
                     error != null -> item { Notice(error, danger = true, action = stringResource(R.string.action_retry)) { vm.reload() } }
@@ -515,7 +515,7 @@ fun CalendarsScreen(vm: SunlithViewModel, onBack: () -> Unit = vm::back) {
                     vm.createLocalCalendar()
                 }
             }
-            item { ClickRow(stringResource(R.string.school_title)) { SettingsActivity.open(context, SettingsActivity.Page.School) } }
+            item { ClickRow(stringResource(R.string.school_title), icon = Icons.AutoMirrored.Outlined.KeyboardArrowRight) { SettingsActivity.open(context, SettingsActivity.Page.School) } }
         }
     }
 }

@@ -5,7 +5,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -42,7 +41,6 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -62,7 +60,6 @@ import io.github.sunsind.sunlith.data.CalendarEvent
 import io.github.sunsind.sunlith.data.SchoolAbsenceCoverage
 import io.github.sunsind.sunlith.ui.Formats
 import io.github.sunsind.sunlith.ui.LocalPalette
-import io.github.sunsind.sunlith.ui.rememberPageSource
 import io.github.sunsind.sunlith.ui.SunlithPalette
 import io.github.sunsind.sunlith.ui.timeLabel
 import java.time.Instant
@@ -78,7 +75,6 @@ import java.util.Locale
 @Immutable
 internal data class EventColors(val container: Color, val content: Color)
 
-internal val EventTitleFade = 4.dp
 
 /**
  * Course fills. Light themes use deep tones under white text, dark themes light tones under near-black text. Every
@@ -383,13 +379,10 @@ internal fun CalendarEventCard(
     val endpoint = morph?.endpoint(event, day, inList = true, radius)
     val card = if (endpoint == null) modifier else morph.card(modifier, endpoint, day)
     val typography = MaterialTheme.typography
-    val source = rememberPageSource()
     Row(
         card.fillMaxWidth().height(IntrinsicSize.Min).heightIn(min = 52.dp).clip(shape).background(colors.container)
-            .then(source.modifier)
             .then(if (event.canceled) Modifier.drawBehind { drawCanceledBars(colors.content) } else Modifier)
-            .calendarPress(colors.content)
-            .clickable(role = Role.Button) { source.open(action = onClick) }
+            .calendarTap(colors.content, onClick = onClick)
             .semantics { contentDescription = listOf(time, event.location).filter { it.isNotBlank() }.joinToString(", ") }
             .padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,

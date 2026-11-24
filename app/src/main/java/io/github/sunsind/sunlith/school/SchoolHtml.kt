@@ -22,8 +22,8 @@ internal object SchoolHtml {
     private val BLOCK = setOf("div", "tr", "table", "ul", "ol", "dl", "dt", "dd", "section", "article", "header", "footer", "center", "form", "tbody", "thead")
     private val PARAGRAPH = setOf("p", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre")
 
-    fun tokens(html: String): List<HtmlToken> {
-        schoolRequire(html.length <= MAX_HTML)
+    fun tokens(html: String, maxChars: Int? = MAX_HTML): List<HtmlToken> {
+        if (maxChars != null) schoolRequire(html.length <= maxChars)
         val out = ArrayList<HtmlToken>()
         var i = 0
         val text = StringBuilder()
@@ -183,6 +183,144 @@ internal object SchoolHtml {
 
     fun frames(tokens: List<HtmlToken>): List<String> = tokens.filterIsInstance<HtmlTag>()
         .filter { !it.closing && (it.name == "frame" || it.name == "iframe") }.mapNotNull { it.attributes["src"]?.trim()?.takeIf(String::isNotEmpty) }
+
+    fun attributes(tokens: List<HtmlToken>, tag: String, name: String): List<String> =
+        tokens.filterIsInstance<HtmlTag>().filter { !it.closing && it.name == tag }.mapNotNull { it.attributes[name] }
+
+    fun labeledLinks(tokens: List<HtmlToken>, label: (String) -> Boolean): List<String> {
+        val matches = ArrayList<String>()
+        var href: String? = null
+        val content = ArrayList<HtmlToken>()
+        for (token in tokens) {
+            if (token is HtmlTag && token.name == "a") {
+                if (token.closing && href != null && label(normalize(text(content)))) matches += href
+                href = if (token.closing) null else token.attributes["href"]
+                content.clear()
+            } else if (href != null) content += token
+        }
+        return matches
+    }
+
+    fun elementContent(tokens: List<HtmlToken>, tag: String, id: String): IntRange? {
+        var start = -1
+        var depth = 0
+        var content: IntRange? = null
+        for ((index, token) in tokens.withIndex()) {
+            if (token !is HtmlTag || token.name != tag) continue
+            if (depth == 0) {
+                if (!token.closing && token.attributes["id"] == id) {
+                    start = index + 1
+                    depth = 1
+                }
+            } else {
+                depth += if (token.closing) -1 else 1
+                if (depth == 0) {
+                    if (content != null) return null
+                    content = start until index
+                }
+            }
+        }
+        return content.takeIf { depth == 0 }
+    }
+
+    fun mailAttachments(tokens: List<HtmlToken>): List<List<HtmlToken>> {
+        for (table in tables(tokens)) {
+            val first = table.rows.indexOfFirst {
+                it.size >= 2 && normalize(it.first().text).trimEnd(':', ' ') in setOf("pieces jointes", "attachments")
+            }
+            if (first < 0) continue
+            val rows = table.rows.drop(first + 1).takeWhile { it.first().text.isBlank() }
+            return (listOf(table.rows[first]) + rows).flatMap { it.drop(1) }
+                .filter { it.text.isNotBlank() }.map { it.tokens }
+        }
+        return emptyList()
+    }
+
+    fun mailFooter(tokens: List<HtmlToken>, after: Int): List<HtmlToken> {
+        val start = (after until tokens.size).firstOrNull {
+            val token = tokens[it] as? HtmlText ?: return@firstOrNull false
+            val text = normalize(token.text)
+            text.startsWith("selon la loi canadienne") || text.startsWith("under canadian law")
+        } ?: return emptyList()
+        val following = tokens.drop(start).take(80)
+        val link = following.indexOfFirst { it is HtmlTag && it.name == "a" && !it.closing }
+        val end = if (link >= 0) following.drop(link + 1).indexOfFirst {
+            it is HtmlTag && it.name == "a" && it.closing
+        } else -1
+        val label = if (end >= 0) normalize(text(following.subList(link + 1, link + 1 + end))) else ""
+        return if ("desinscrire" in label || "unsubscribe" in label) following.take(link + end + 2)
+        else following.take(1)
+    }
+
+    suspend fun emailMarkup(
+        tokens: List<HtmlToken>,
+        link: (String) -> String?,
+        image: suspend (String) -> String?,
+    ): String {
+        val out = StringBuilder()
+        var paragraphEnd = -1
+        for ((index, token) in tokens.withIndex()) {
+            if (index <= paragraphEnd) continue
+            if (token is HtmlTag && token.name == "p" && !token.closing) {
+                paragraphEnd = blankParagraphEnd(tokens, index + 1)
+                if (paragraphEnd >= index) continue
+            }
+            when (token) {
+                is HtmlText -> out.append(escapeMarkup(token.text))
+                is HtmlTag -> {
+                    val name = token.name
+                    if (name !in EMAIL_TAGS) continue
+                    if (token.closing) {
+                        out.append("</").append(name).append('>')
+                        continue
+                    }
+                    out.append('<').append(name)
+                    for ((key, value) in token.attributes) {
+                        val safe = when {
+                            name == "a" && key == "href" -> link(value)
+                            name == "img" && key == "src" -> image(value)
+                            key == "align" && value.trim().equals("justify", ignoreCase = true) -> null
+                            key == "style" -> JUSTIFIED_TEXT.replace(value, "").takeIf { it.isNotBlank() }
+                            key in EMAIL_ATTRIBUTES -> value
+                            else -> null
+                        } ?: continue
+                        out.append(' ').append(key).append("=\"").append(escapeMarkup(safe)).append('"')
+                    }
+                    out.append('>')
+                }
+            }
+        }
+        return out.toString()
+    }
+
+    private fun blankParagraphEnd(tokens: List<HtmlToken>, start: Int): Int {
+        for (index in start until tokens.size) {
+            when (val token = tokens[index]) {
+                is HtmlText -> if (!token.text.isBlank()) return -1
+                is HtmlTag -> {
+                    if (token.name == "p" && token.closing) return index
+                    if (token.name !in BLANK_PARAGRAPH_TAGS) return -1
+                }
+            }
+        }
+        return -1
+    }
+
+    private val BLANK_PARAGRAPH_TAGS = setOf("br", "span", "font", "b", "strong", "i", "em", "u")
+
+    fun escapeMarkup(value: String) = value.replace("&", "&amp;").replace("<", "&lt;")
+        .replace(">", "&gt;").replace("\"", "&quot;")
+
+    private val EMAIL_TAGS = setOf(
+        "a", "abbr", "b", "blockquote", "br", "caption", "center", "code", "col", "colgroup", "dd", "div", "dl", "dt",
+        "em", "font", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "img", "li", "ol", "p", "pre", "s", "small",
+        "span", "strike", "strong", "sub", "sup", "table", "tbody", "td", "tfoot", "th", "thead", "tr", "u", "ul",
+    )
+    private val EMAIL_ATTRIBUTES = setOf(
+        "align", "alt", "bgcolor", "border", "cellpadding", "cellspacing", "color", "colspan", "dir", "face",
+        "height", "lang", "rowspan", "size", "title", "valign", "width",
+    )
+    private val JUSTIFIED_TEXT = Regex("""(?:^|;)\s*text-align\s*:\s*justify\s*(?:!\s*important\s*)?(?=;|$)""", RegexOption.IGNORE_CASE)
 
     /** Lowercase, accent-free, single-spaced text for structural matching only (never shown). */
     fun normalize(value: String): String = Normalizer.normalize(value, Normalizer.Form.NFD).replace(MARKS, "")

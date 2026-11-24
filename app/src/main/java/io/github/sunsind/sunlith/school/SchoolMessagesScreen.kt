@@ -1,68 +1,67 @@
 package io.github.sunsind.sunlith.school
 
-import android.icu.text.RelativeDateTimeFormatter
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ArrowDropDown
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.ui.LocalPalette
 import io.github.sunsind.sunlith.ui.Note
@@ -74,78 +73,149 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-/**
- * Col.NET administration messages in their original language.
- * Bodies render as text: no scripts, images or remote content are loaded.
- */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SchoolMessagesScreen(
     controller: SchoolMessagesManager,
-    onBack: () -> Unit,
     messageId: String?,
+    showNotices: Boolean,
     onOpenMessage: (String) -> Unit,
-    onAddSuggestion: (SchoolNoticeSuggestion) -> Unit = {},
     onOpenDate: (LocalDate) -> Unit = {},
 ) {
     val p = LocalPalette.current
     val state by controller.state.collectAsStateWithLifecycle()
+    val inbox by controller.inbox.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val uri = LocalUriHandler.current
-    // The chosen section and each list's scroll live here, so opening a message and coming Back keeps both.
-    var section by rememberSaveable { mutableStateOf(SECTION_MAIN) }
-    val mainList = rememberLazyListState()
-    val datesList = rememberLazyListState()
+    val pager = rememberPagerState(initialPage = if (showNotices) NOTICES_PAGE else INBOX_PAGE) { 2 }
+    val section = pager.settledPage
+    val noticesList = rememberLazyListState()
+    val inboxList = rememberLazyListState()
     var links by remember { mutableStateOf<List<SchoolPortalLink>?>(null) }
     var linkFailed by remember { mutableStateOf(false) }
     var linksProblem by remember { mutableStateOf<SchoolAdminStatus?>(null) }
     var linksLoading by remember { mutableStateOf(false) }
-
-
+    var resolvingLink by remember { mutableStateOf(false) }
+    var portalJob by remember { mutableStateOf<Job?>(null) }
 
     val admin = state.admin.firstOrNull { it.id == messageId }
-    LaunchedEffect(messageId) {
-        if (messageId != null) return@LaunchedEffect
-        try { controller.refresh() } catch (e: CancellationException) { throw e } catch (_: Exception) { }
+    val mailId = messageId?.takeIf { it.startsWith("inbox:") }?.removePrefix("inbox:")
+    val mail = inbox.messages.firstOrNull { it.id == mailId }
+    LifecycleResumeEffect(section, messageId, state.connected) {
+        val refresh = if (messageId == null && section == INBOX_PAGE && state.connected) {
+            scope.launch { controller.inbox.refresh(keepPages = true) }
+        } else null
+        onPauseOrDispose { refresh?.cancel() }
+    }
+    LaunchedEffect(section, messageId, state.connected) {
+        if (messageId == null && section != INBOX_PAGE && state.connected) {
+            try { controller.refresh() } catch (e: CancellationException) { throw e } catch (_: Exception) { }
+        }
     }
     fun openPortal() { state.portalUrl?.let { runCatching { uri.openUri(it) } } }
+    fun dismissLinks() {
+        portalJob?.cancel()
+        links = null
+        linksProblem = null
+        linksLoading = false
+        resolvingLink = false
+    }
+    LifecycleResumeEffect(Unit) {
+        onPauseOrDispose { dismissLinks() }
+    }
+    LaunchedEffect(pager.currentPage) {
+        if (pager.currentPage == INBOX_PAGE) dismissLinks()
+    }
 
-    Scaffold(containerColor = p.background, topBar = {
-        ScreenTopBar(admin?.subject ?: stringResource(R.string.school_messages_title), onNavigate = onBack) {
-            if (state.busy) CircularProgressIndicator(Modifier.padding(12.dp).size(24.dp), strokeWidth = 2.dp, color = p.muted)
-            else IconButton(onClick = { scope.launch { try { controller.refresh() } catch (e: CancellationException) { throw e } catch (_: Exception) { } } }, enabled = state.connected) {
-                Icon(Icons.Outlined.Refresh, stringResource(R.string.school_messages_refresh), tint = p.ink)
+    val showingInbox = messageId == null && section == INBOX_PAGE
+    var completedRefreshes by remember { mutableIntStateOf(0) }
+    var refreshingPage by remember { mutableStateOf<Int?>(null) }
+    fun refreshPage(page: Int, pulled: Boolean = false) {
+        if (refreshingPage == page) return
+        if (pulled) refreshingPage = page
+        scope.launch {
+            try { if (page == INBOX_PAGE) controller.inbox.refresh() else controller.refresh() }
+            catch (e: CancellationException) { throw e } catch (_: Exception) { }
+            finally {
+                if (pulled && refreshingPage == page) refreshingPage = null
+                if (isActive) completedRefreshes++
+            }
+        }
+    }
+    val refresh: () -> Unit = { refreshPage(section) }
+    val snackbar = remember { SnackbarHostState() }
+    val listError = when {
+        messageId != null -> null
+        showingInbox -> inbox.error?.let(::inboxProblem)
+        else -> noticeProblem(state.adminStatus, state.busy).takeUnless { state.adminStatus == SchoolAdminStatus.NOT_LOADED }
+    }
+    val activeList = if (showingInbox) inboxList else noticesList
+    val errorText = listError?.let { stringResource(it) }
+    val retryLabel = stringResource(R.string.action_retry)
+    LaunchedEffect(errorText, activeList, completedRefreshes) {
+        if (errorText != null && (activeList.firstVisibleItemIndex > 0 || activeList.firstVisibleItemScrollOffset > 0)) {
+            if (snackbar.showSnackbar(errorText, retryLabel, withDismissAction = true) == SnackbarResult.ActionPerformed) refresh()
+        }
+    }
+    Scaffold(containerColor = p.background, snackbarHost = { SnackbarHost(snackbar) }, topBar = {
+        if (messageId != null && mailId == null) ScreenTopBar(stringResource(R.string.school_notice_detail)) {
+            if (state.portalUrl != null) {
+                IconButton(onClick = ::openPortal) {
+                    Icon(Icons.AutoMirrored.Outlined.OpenInNew, stringResource(R.string.school_admin_open_portal), tint = p.ink)
+                }
             }
         }
     }) { pad ->
-        Box(Modifier.fillMaxSize().padding(pad)) {
-            when {
-                !state.connected -> Note(stringResource(R.string.school_messages_not_connected), live = true)
-                admin != null -> AdminDetail(admin, state.collegeNotices.firstOrNull { it.sourceId == admin.id }, ::openPortal, onOpenDate)
-                messageId != null -> Note(stringResource(R.string.school_admin_empty))
-                else -> Column(Modifier.fillMaxSize()) {
-                // The picker stays above the list, so it is reachable however far the list is scrolled.
-                if (state.suggestions.isNotEmpty()) SectionPicker(section) { section = it }
-                if (state.suggestions.isNotEmpty() && section == SECTION_DATES) SuggestionList(state.suggestions, datesList, onAddSuggestion)
-                else AdminList(
-                    state.admin, state.adminStatus, state.adminUpdatedMillis, state.collegeNotices, mainList,
-                    onOpen = { onOpenMessage(it.id) }, onOpenDate = onOpenDate,
-                    onOpenPortal = ::openPortal,
-                    // A college that publishes no links gets no links button. An empty answer opens Col.NET instead of an empty dialog.
-                    onLinks = if (state.portalLinksAvailable == false) null else ({
-                        if (!linksLoading) scope.launch {
-                            linksLoading = true
-                            try {
-                                when (val result = controller.loadPortalLinks()) {
-                                    is SchoolPortalLinks.Loaded -> if (result.links.isEmpty()) openPortal() else { linkFailed = false; links = result.links }
-                                    is SchoolPortalLinks.Failed -> linksProblem = result.status
-                                }
-                            } finally { linksLoading = false }
+        Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.TopCenter) {
+            Box(Modifier.widthIn(max = 720.dp).fillMaxSize()) {
+                when {
+                    !state.connected -> Note(stringResource(R.string.school_messages_not_connected), live = true)
+                    mailId != null -> InboxDetail(mailId, mail, controller.inbox, state.portalUrl, ::openPortal)
+                    admin != null -> AdminDetail(admin, state.collegeNotices.firstOrNull { it.sourceId == admin.id }, ::openPortal, onOpenDate)
+                    messageId != null -> Note(stringResource(R.string.school_admin_empty))
+                    else -> Column(Modifier.fillMaxSize()) {
+                        MessageTabs(pager.currentPage) { page ->
+                            if (page != pager.currentPage) {
+                                dismissLinks()
+                                scope.launch { pager.animateScrollToPage(page) }
+                            }
                         }
-                    }),
-                    linksLoading = linksLoading,
-                )
+                        HorizontalPager(state = pager, modifier = Modifier.weight(1f)) { page ->
+                            PullToRefreshBox(
+                                isRefreshing = refreshingPage == page,
+                                onRefresh = { refreshPage(page, pulled = true) },
+                                modifier = Modifier.fillMaxSize(),
+                            ) {
+                                if (page == INBOX_PAGE) {
+                                    InboxList(inbox, inboxList, { controller.inbox.loadNext() }, { refreshPage(page) }, ::openPortal) {
+                                        onOpenMessage("inbox:${it.id}")
+                                    }
+                                } else {
+                                    AdminList(
+                                        state.admin, state.adminStatus, state.collegeNotices, noticesList,
+                                        onOpen = { dismissLinks(); onOpenMessage(it.id) }, onOpenDate = onOpenDate,
+                                        onOpenPortal = ::openPortal,
+                                        onLinks = if (state.portalLinksAvailable == false) null else ({
+                                            if (!linksLoading) portalJob = scope.launch {
+                                                linksLoading = true
+                                                try {
+                                                    when (val result = controller.loadPortalLinks()) {
+                                                        is SchoolPortalLinks.Loaded -> if (result.links.isEmpty()) openPortal() else { linkFailed = false; links = result.links }
+                                                        is SchoolPortalLinks.Failed -> linksProblem = result.status
+                                                    }
+                                                } finally { if (isActive) linksLoading = false }
+                                            }
+                                        }),
+                                        linksLoading = linksLoading, busy = state.busy, onRetry = { refreshPage(page) },
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -166,16 +236,25 @@ internal fun SchoolMessagesScreen(
             })
     }
     links?.let { list ->
-        AlertDialog(onDismissRequest = { links = null }, confirmButton = { TextButton({ links = null }) { Text(stringResource(R.string.school_messages_close)) } },
+        AlertDialog(onDismissRequest = ::dismissLinks,
+            confirmButton = { TextButton(::dismissLinks) { Text(stringResource(R.string.school_messages_close)) } },
             title = { Text(stringResource(R.string.school_admin_portal_links)) },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
-                    if (linkFailed) Text(stringResource(R.string.school_admin_portal_link_failed), color = p.danger)
+                    if (resolvingLink) MessageLoading(R.string.school_mail_opening_link)
+                    if (linkFailed) Text(stringResource(R.string.school_admin_portal_link_failed),
+                        Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = p.danger)
                     list.forEach { link ->
-                        Text(link.description, Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button) {
-                            scope.launch {
-                                val url = try { controller.resolvePortalLink(link.code) } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
-                                if (url == null) linkFailed = true else { linkFailed = false; links = null; runCatching { uri.openUri(url) } }
+                        Text(link.description, Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(enabled = !resolvingLink, role = Role.Button) {
+                            resolvingLink = true
+                            linkFailed = false
+                            portalJob = scope.launch {
+                                try {
+                                    val url = controller.resolvePortalLink(link.code)
+                                    if (url == null) linkFailed = true else { uri.openUri(url); links = null }
+                                } catch (e: CancellationException) { throw e }
+                                catch (_: Exception) { linkFailed = true }
+                                finally { if (isActive) resolvingLink = false }
                             }
                         }.padding(vertical = 12.dp), color = p.ink, style = MaterialTheme.typography.bodyLarge)
                     }
@@ -184,117 +263,67 @@ internal fun SchoolMessagesScreen(
     }
 }
 
-private const val SECTION_MAIN = "main"
-private const val SECTION_DATES = "dates"
+private const val INBOX_PAGE = 0
+private const val NOTICES_PAGE = 1
 
-/**
- * A small control at the top right that switches between the messages and the dates found in notices. It names the
- * shown section, works as one button at any text size, and its menu marks the selected section.
- */
 @Composable
-private fun SectionPicker(section: String, onSelect: (String) -> Unit) {
+private fun MessageTabs(selectedPage: Int, onSelect: (Int) -> Unit) {
     val p = LocalPalette.current
-    var expanded by remember { mutableStateOf(false) }
-    val sections = listOf(SECTION_MAIN to stringResource(R.string.school_messages_section_main),
-        SECTION_DATES to stringResource(R.string.school_messages_section_dates))
-    val current = sections.first { it.first == section }.second
-    val label = stringResource(R.string.school_messages_section_label)
-    Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp), contentAlignment = Alignment.TopEnd) {
-        Box {
-            Row(
-                Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp))
-                    .clickable(role = Role.DropdownList) { expanded = true }
-                    .semantics { contentDescription = "$label: $current" }
-                    .padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(current, color = p.ink, style = MaterialTheme.typography.labelLarge, maxLines = 2)
-                Icon(Icons.Outlined.ArrowDropDown, null, tint = p.muted)
-            }
-            DropdownMenu(expanded, onDismissRequest = { expanded = false }, containerColor = p.surface,
-                modifier = Modifier) {
-                sections.forEach { (key, name) ->
-                    val on = key == section
-                    DropdownMenuItem(
-                        text = { Text(name, color = p.ink) },
-                        onClick = { expanded = false; onSelect(key) },
-                        trailingIcon = { if (on) Icon(Icons.Outlined.Check, null, tint = p.accent) },
-                        modifier = Modifier.semantics { selected = on },
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** Dates found in notices, each with its source text in full and an action to review it as a new event. */
-@Composable
-private fun SuggestionList(suggestions: List<SchoolNoticeSuggestion>, state: LazyListState, onAddSuggestion: (SchoolNoticeSuggestion) -> Unit) {
-    val p = LocalPalette.current
-    LazyColumn(Modifier.fillMaxSize(), state = state,
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp)) {
-        item { Note(stringResource(R.string.school_admin_suggestions_note)) }
-        items(suggestions, key = { it.id }) { s ->
-            Card {
-                Text(longDate(s.date), color = p.ink, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                Text(s.title, color = p.muted, style = MaterialTheme.typography.bodySmall)
-                Text(s.detail, color = p.ink, style = MaterialTheme.typography.bodyMedium)
-                TextButton({ onAddSuggestion(s) }, Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.school_admin_suggestion_add)) }
-            }
+    PrimaryTabRow(selectedPage, containerColor = p.background, contentColor = p.accent) {
+        listOf(R.string.school_inbox_tab, R.string.school_messages_section_main).forEachIndexed { page, label ->
+            Tab(selected = page == selectedPage, onClick = { onSelect(page) }, text = { Text(stringResource(label)) },
+                selectedContentColor = p.accent, unselectedContentColor = p.muted)
         }
     }
 }
 
 @Composable
 private fun AdminList(
-    notices: List<SchoolAdminNotice>, status: SchoolAdminStatus, updated: Long?, college: List<SchoolCollegeNotice>,
+    notices: List<SchoolAdminNotice>, status: SchoolAdminStatus, college: List<SchoolCollegeNotice>,
     listState: LazyListState, onOpen: (SchoolAdminNotice) -> Unit, onOpenDate: (LocalDate) -> Unit,
-    onOpenPortal: () -> Unit, onLinks: (() -> Unit)?, linksLoading: Boolean,
+    onOpenPortal: () -> Unit, onLinks: (() -> Unit)?, linksLoading: Boolean, busy: Boolean, onRetry: () -> Unit,
 ) {
-    val p = LocalPalette.current
     LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 32.dp)) {
-        val message = when (status) {
-            SchoolAdminStatus.OK -> null
-            SchoolAdminStatus.NOT_LOADED -> R.string.school_admin_not_loaded
-            SchoolAdminStatus.SIGN_IN -> R.string.school_admin_status_sign_in
-            SchoolAdminStatus.UNRECOGNIZED -> R.string.school_admin_status_unrecognized
-            SchoolAdminStatus.NETWORK -> R.string.school_admin_status_network
-            SchoolAdminStatus.UNAVAILABLE -> R.string.school_admin_status_unavailable
-            SchoolAdminStatus.STORAGE -> R.string.school_messages_storage
-        }
-        if (message != null) item {
-            Card {
-                Text(stringResource(message), Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = if (status == SchoolAdminStatus.NOT_LOADED) p.ink else p.danger, style = MaterialTheme.typography.bodyMedium)
-                Row { TextButton(onOpenPortal, Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.school_admin_open_portal)) }
-                    if (onLinks != null) TextButton(onLinks, Modifier.heightIn(min = 48.dp), enabled = !linksLoading) { Text(stringResource(R.string.school_admin_portal_links)) } }
+        val message = noticeProblem(status, busy)
+        if (busy && notices.isEmpty()) item { MessageLoading(R.string.school_messages_refreshing) }
+        if (message != null) item { MessageProblem(message, onRetry, onOpenPortal) }
+        if (onLinks != null) item {
+            TextButton(onLinks, Modifier.padding(horizontal = 8.dp), enabled = !linksLoading) {
+                Text(stringResource(if (linksLoading) R.string.school_mail_loading_links else R.string.school_admin_portal_links))
             }
         }
-        item { Updated(updated) }
         if (college.isNotEmpty()) {
             item { SectionTitle(stringResource(R.string.school_admin_notices)) }
             items(college, key = { it.identity }) { n -> CollegeCard(n, onOpenDate) { notices.firstOrNull { it.id == n.sourceId }?.let(onOpen) } }
         }
-        item { SectionTitle(stringResource(R.string.school_admin_list)) }
+        if (notices.isNotEmpty() && college.isNotEmpty()) item { SectionTitle(stringResource(R.string.school_admin_list)) }
         if (notices.isEmpty() && status == SchoolAdminStatus.OK) item { Note(stringResource(R.string.school_admin_empty), live = true) }
         items(notices, key = { it.id }) { n ->
-            Column(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(role = Role.Button) { onOpen(n) }.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                Text(n.subject, color = p.ink, style = MaterialTheme.typography.bodyLarge, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                Text(listOf(shortDate(n.date), n.sender).filter { it.isNotBlank() }.joinToString(", "), color = p.muted, style = MaterialTheme.typography.bodySmall)
-            }
-            HorizontalDivider(Modifier.padding(start = 16.dp), color = p.line)
+            SchoolMessageRow(n.subject, n.sender, shortDate(n.date)) { onOpen(n) }
         }
     }
 }
 
+private fun noticeProblem(status: SchoolAdminStatus, busy: Boolean): Int? = when (status) {
+    SchoolAdminStatus.OK -> null
+    SchoolAdminStatus.NOT_LOADED -> if (busy) null else R.string.school_admin_not_loaded
+    SchoolAdminStatus.SIGN_IN -> R.string.school_admin_status_sign_in
+    SchoolAdminStatus.UNRECOGNIZED -> R.string.school_admin_status_unrecognized
+    SchoolAdminStatus.NETWORK -> R.string.school_admin_status_network
+    SchoolAdminStatus.UNAVAILABLE -> R.string.school_admin_status_unavailable
+    SchoolAdminStatus.STORAGE -> R.string.school_messages_storage
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CollegeCard(n: SchoolCollegeNotice, onOpenDate: (LocalDate) -> Unit, onSource: () -> Unit) {
     val p = LocalPalette.current
     val confirmed = n.status == SchoolNoticeStatus.CONFIRMED
-    Card(emphasis = true) {
-        Text(stringResource(when (n.status) { SchoolNoticeStatus.CONFIRMED -> R.string.school_admin_confirmed; SchoolNoticeStatus.UPDATED -> R.string.school_admin_updated; else -> R.string.school_admin_warning }).uppercase(),
-            color = if (confirmed) p.danger else p.muted, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-        Text(longDate(n.targetDate), color = p.ink, style = MaterialTheme.typography.titleMedium)
-        Text(n.subject, color = p.ink, style = MaterialTheme.typography.bodyMedium)
+    SchoolMessageCard(emphasis = true) {
+        Text(n.subject, Modifier.semantics { heading() }, color = p.ink, style = MaterialTheme.typography.titleMedium)
+        Text(longDate(n.targetDate), color = p.ink, style = MaterialTheme.typography.bodyMedium)
+        Text(stringResource(when (n.status) { SchoolNoticeStatus.CONFIRMED -> R.string.school_admin_confirmed; SchoolNoticeStatus.UPDATED -> R.string.school_admin_updated; else -> R.string.school_admin_warning }),
+            color = if (confirmed) p.danger else p.accent, style = MaterialTheme.typography.labelLarge)
         Text(listOf(n.sender, stringResource(R.string.school_admin_posted, shortDate(n.sourceDate))).filter { it.isNotBlank() }.joinToString(", "), color = p.muted, style = MaterialTheme.typography.bodySmall)
         n.until?.let { Text(stringResource(R.string.school_admin_until, shortTime(it)), color = p.ink, style = MaterialTheme.typography.bodyMedium) }
         n.decisionAt?.let { Text(stringResource(R.string.school_admin_decision, shortTime(it)), color = p.ink, style = MaterialTheme.typography.bodyMedium) }
@@ -306,7 +335,7 @@ private fun CollegeCard(n: SchoolCollegeNotice, onOpenDate: (LocalDate) -> Unit,
         if (n.superseded.isNotEmpty()) Text(stringResource(R.string.school_admin_superseded), color = p.muted, style = MaterialTheme.typography.bodySmall)
         if (!n.detailRead) Text(stringResource(R.string.school_admin_title_only), color = p.muted, style = MaterialTheme.typography.bodySmall)
         Text(stringResource(if (n.classesMarked) R.string.school_admin_classes_marked else R.string.school_admin_scope_note), color = p.muted, style = MaterialTheme.typography.bodySmall)
-        Row {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton({ onOpenDate(n.targetDate) }, Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.school_admin_show_day)) }
             TextButton(onSource, Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.school_admin_open_notice)) }
         }
@@ -317,7 +346,7 @@ private fun CollegeCard(n: SchoolCollegeNotice, onOpenDate: (LocalDate) -> Unit,
 private fun AdminDetail(n: SchoolAdminNotice, college: SchoolCollegeNotice?, onOpenPortal: () -> Unit, onOpenDate: (LocalDate) -> Unit) {
     val p = LocalPalette.current
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(n.subject, Modifier.semantics { heading() }, color = p.ink, style = MaterialTheme.typography.titleMedium)
+        Text(n.subject, Modifier.semantics { heading() }, color = p.ink, style = MaterialTheme.typography.headlineSmall)
         Text(longDate(n.date), color = p.muted, style = MaterialTheme.typography.bodySmall)
         if (n.sender.isNotBlank()) Text(stringResource(R.string.school_admin_source, n.sender), color = p.ink, style = MaterialTheme.typography.bodyMedium)
         if (n.category.isNotBlank()) Text(stringResource(R.string.school_admin_category, n.category), color = p.muted, style = MaterialTheme.typography.bodySmall)
@@ -333,33 +362,13 @@ private fun AdminDetail(n: SchoolAdminNotice, college: SchoolCollegeNotice?, onO
 
 // Message cards end in text buttons, so they keep a tighter bottom edge.
 @Composable
-private fun Card(emphasis: Boolean = false, content: @Composable ColumnScope.() -> Unit) = SurfaceCard(
+internal fun SchoolMessageCard(emphasis: Boolean = false, content: @Composable ColumnScope.() -> Unit) = SurfaceCard(
     Modifier.padding(horizontal = 16.dp, vertical = 6.dp), emphasis, PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 6.dp), content,
 )
 
 @Composable
-private fun Updated(millis: Long?) {
-    val locale = LocalConfiguration.current.locales[0]
-    val formatter = remember(locale) { RelativeDateTimeFormatter.getInstance(locale) }
-    val text = if (millis == null) stringResource(R.string.school_messages_never)
-    else {
-        val elapsed = System.currentTimeMillis() - millis
-        val minutes = kotlin.math.abs(elapsed / 60_000)
-        val direction = if (elapsed >= 0) RelativeDateTimeFormatter.Direction.LAST else RelativeDateTimeFormatter.Direction.NEXT
-        val relative = when {
-            minutes == 0L -> formatter.format(RelativeDateTimeFormatter.Direction.PLAIN, RelativeDateTimeFormatter.AbsoluteUnit.NOW)
-            minutes < 60 -> formatter.format(minutes.toDouble(), direction, RelativeDateTimeFormatter.RelativeUnit.MINUTES)
-            minutes < 1440 -> formatter.format((minutes / 60).toDouble(), direction, RelativeDateTimeFormatter.RelativeUnit.HOURS)
-            else -> formatter.format((minutes / 1440).toDouble(), direction, RelativeDateTimeFormatter.RelativeUnit.DAYS)
-        }
-        stringResource(R.string.school_messages_updated, relative)
-    }
-    Text(text, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = LocalPalette.current.faint, style = MaterialTheme.typography.bodySmall)
-}
-
-@Composable
-private fun shortDate(date: LocalDate): String = date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(LocalConfiguration.current.locales[0]))
+internal fun shortDate(date: LocalDate): String = date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(LocalConfiguration.current.locales[0]))
 @Composable
 private fun longDate(date: LocalDate): String = date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.FULL).withLocale(LocalConfiguration.current.locales[0]))
 @Composable
-private fun shortTime(time: LocalTime): String = time.format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(LocalConfiguration.current.locales[0]))
+internal fun shortTime(time: LocalTime): String = time.format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(LocalConfiguration.current.locales[0]))

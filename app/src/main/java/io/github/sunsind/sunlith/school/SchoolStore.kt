@@ -47,7 +47,7 @@ internal data class SchoolRecord(
     val portal: String, val username: String, val password: String, val zone: String, val calendarId: Long,
     val account: String, val connection: String, val token: String, val expiresAt: Long,
     val term: String = "", val baseline: List<SchoolItem> = emptyList(), val ledger: List<SchoolOwned> = emptyList(),
-    val lastSuccess: Long? = null, val notifications: SchoolNotificationPreferences = SchoolNotificationPreferences(),
+    val lastSuccess: Long? = null, val notificationsEnabled: Boolean = true,
     val lastFailure: String? = null, val journal: SchoolJournal? = null, val calendarIdentity: Map<String, String?> = emptyMap(), val disconnecting: String? = null,
     val termKey: String = "",
     val pendingReview: String? = null,
@@ -60,9 +60,8 @@ internal data class SchoolRecord(
     fun json(): JSONObject = JSONObject().put("version", 1).put("portal", portal).put("username", username).put("password", password)
         .put("zone", zone).put("calendar", calendarId).put("account", account).put("connection", connection).put("token", token).put("expires", expiresAt)
         .put("term", term).put("baseline", JSONArray(baseline.map { it.json() })).put("ledger", JSONArray(ledger.map { it.json() }))
-        .put("initialized", initialized).put("success", lastSuccess ?: JSONObject.NULL).put("notify", notifications.enabled)
-        .put("categories", JSONArray(notifications.categories.map { it.name })).put("failure", lastFailure ?: JSONObject.NULL).put("journal", journal?.json() ?: JSONObject.NULL)
-        .put("administrationCategory", true)
+        .put("initialized", initialized).put("success", lastSuccess ?: JSONObject.NULL).put("notify", notificationsEnabled)
+        .put("failure", lastFailure ?: JSONObject.NULL).put("journal", journal?.json() ?: JSONObject.NULL)
         .put("calendarIdentity", JSONObject().also { j -> calendarIdentity.forEach { (k, v) -> j.put(k, v ?: JSONObject.NULL) } })
         .put("disconnecting", disconnecting ?: JSONObject.NULL)
         .put("termKey", termKey)
@@ -75,10 +74,7 @@ internal data class SchoolRecord(
             return SchoolRecord(j.getString("portal"), j.getString("username"), j.getString("password"), j.getString("zone"), j.getLong("calendar"),
                 j.getString("account"), j.getString("connection"), j.getString("token"), j.getLong("expires"), j.getString("term"),
                 j.getJSONArray("baseline").items(), j.getJSONArray("ledger").owned(),
-                if (j.isNull("success")) null else j.getLong("success"), SchoolNotificationPreferences(j.getBoolean("notify"),
-                    j.getJSONArray("categories").strings().map { SchoolAlert.valueOf(it) }.toSet().let {
-                        if (j.optBoolean("administrationCategory", false)) it else it + SchoolAlert.ADMINISTRATION_MESSAGES
-                    }),
+                if (j.isNull("success")) null else j.getLong("success"), j.optBoolean("notify", true),
                 if (j.isNull("failure")) null else j.getString("failure"), if (j.isNull("journal")) null else SchoolJournal.read(j.getJSONObject("journal")),
                 j.getJSONObject("calendarIdentity").let { r -> r.keys().asSequence().associateWith { if (r.isNull(it)) null else r.getString(it) } },
                 if (j.isNull("disconnecting")) null else j.getString("disconnecting"), j.optString("termKey", ""),

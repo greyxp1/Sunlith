@@ -25,11 +25,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -89,7 +85,6 @@ internal fun DayBody(c: CalendarContext, modifier: Modifier, dayReturn: TodaySli
     val vm = c.vm
     val background = LocalPalette.current.background
     var shown by remember { mutableStateOf(vm.timelineStartFor(ViewMode.Day)?.takeUnless { vm.calendarExpanded } ?: vm.selectedDateFor(ViewMode.Day)) }
-    var hasParent by remember { mutableStateOf(vm.hasDayParent) }
     val expanded = vm.calendarExpanded
     if (vm.viewMode == ViewMode.Day) {
         val timelineToday = vm.timelineNavigationRequest != vm.handledTimelineNavigation &&
@@ -99,7 +94,6 @@ internal fun DayBody(c: CalendarContext, modifier: Modifier, dayReturn: TodaySli
             else timelineToday && c.todayGridReady -> c.today
             else -> c.visibleDay
         }
-        hasParent = vm.hasDayParent
     }
     val rowPx = remember { floatArrayOf(1f) }
     var progress by remember { mutableFloatStateOf(if (expanded) 1f else 0f) }
@@ -182,9 +176,6 @@ internal fun DayBody(c: CalendarContext, modifier: Modifier, dayReturn: TodaySli
                 true
             })
         }) {
-            if (hasParent) IconButton(onClick = vm::back) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.action_back))
-            }
             Box(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(bottom = 4.dp)) {
                     MonthDatePicker(c, shown, browseMonths, monthVisible, dragging || browseMonths != expanded,
@@ -278,9 +269,11 @@ private fun MonthRows(
                 repeat(7) { col ->
                     val day = dates[r * 7 + col]
                     key(day) {
+                        val addEvent = expanded && day == selected
                         DayCell(
                             day, day == selected, day == c.today, !monthVisible || YearMonth.from(day) == month, eventsOn(day), c.f,
-                            c.dayMeasurer, Modifier.weight(1f), onSelect,
+                            c.dayMeasurer, Modifier.weight(1f), { if (addEvent) c.vm.newEvent(it) else onSelect(it) },
+                            addEvent = addEvent,
                             reveal = progress.takeIf { r != selectedRow },
                         )
                     }

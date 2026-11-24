@@ -16,9 +16,7 @@ data class SchoolMessagesState(
     val busy: Boolean = false,
     val admin: List<SchoolAdminNotice> = emptyList(),
     val adminStatus: SchoolAdminStatus = SchoolAdminStatus.NOT_LOADED,
-    val adminUpdatedMillis: Long? = null,
     val collegeNotices: List<SchoolCollegeNotice> = emptyList(),
-    val suggestions: List<SchoolNoticeSuggestion> = emptyList(),
     /** Public Col.NET sign-in page; carries no session. */
     val portalUrl: String? = null,
     /** Null until links were loaded once. False when the college publishes no extra Col.NET links. */

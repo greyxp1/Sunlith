@@ -10,6 +10,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
 
+internal const val SCHOOL_JOB_RETRY_DELAY = 45_000L
+
 class SchoolSyncJobService : JobService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var task: Job? = null

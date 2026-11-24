@@ -19,7 +19,6 @@
     <string name="title_calendars">Calendars</string>
     <string name="title_settings">Settings</string>
 
-    <string name="action_back">Back</string>
     <string name="action_close">Close</string>
     <string name="action_cancel">Cancel</string>
     <string name="action_ok">OK</string>
@@ -201,7 +200,6 @@
         <item quantity="other">and %d more notes</item>
     </plurals>
 
-    <string name="calendars_intro">Choose the calendars shown in Sunlith and its widget.</string>
     <string name="calendar_read_only">Read-only</string>
     <string name="calendar_on_device">On this device</string>
 
@@ -235,7 +233,6 @@
     <string name="msg_export_skipped">Some unsupported events were skipped. Check this backup before relying on it.</string>
     <string name="time_range">%1$s – %2$s</string>
     <string name="notification_location_separator">%1$s, %2$s</string>
-    <string name="local_calendar_name">Sunlith (on this device)</string>
     <string name="ai_intro_title">Your calendar, connected</string>
     <string name="ai_intro_lead">Add, edit and remove phone events from your computer.</string>
     <string name="action_set_up_ai">Connect your computer</string>

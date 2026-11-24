@@ -64,6 +64,7 @@ import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -114,8 +115,11 @@ private val ReminderPresets = listOf(0, 5, 10, 15, 30, 60, 120, 1440, 2880, 1008
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun EventEditorScreen(vm: SunlithViewModel) {
-    val state = vm.editor ?: return
+fun EventEditorScreen(vm: SunlithViewModel, active: Boolean) {
+    val current = if (active) vm.editor else null
+    val last = remember { arrayOfNulls<EditorState>(1) }
+    if (current != null) SideEffect { last[0] = current }
+    val state = current ?: last[0] ?: return
     val p = LocalPalette.current
     val f = rememberFormats()
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -128,8 +132,7 @@ fun EventEditorScreen(vm: SunlithViewModel) {
     val problemMessage = problem?.let { stringResource(it) }
     val endInvalid = state.endInvalid()
 
-    val close: () -> Unit = { if (vm.editorDirty) confirmDiscard = true else vm.closeEditor() }
-    BackHandler(enabled = vm.editorDirty, onBack = close)
+    BackHandler(enabled = active && vm.editorDirty) { confirmDiscard = true }
 
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val minutes = pendingReminder
@@ -154,9 +157,6 @@ fun EventEditorScreen(vm: SunlithViewModel) {
         topBar = {
             ScreenTopBar(
                 title = stringResource(if (state.id == null) R.string.editor_new else R.string.editor_edit),
-                navigationIcon = Icons.Outlined.Close,
-                navigationLabel = stringResource(R.string.action_close),
-                onNavigate = close,
             ) {
                 TextButton(onClick = vm::saveEditor, enabled = problem == null && !vm.saving,
                     modifier = Modifier.padding(end = 4.dp).semantics { if (problemMessage != null) stateDescription = problemMessage }) {
@@ -267,7 +267,7 @@ fun EventEditorScreen(vm: SunlithViewModel) {
         }
     }
 
-    when (picking) {
+    when (picking.takeIf { active }) {
         Picking.StartDate -> DatePick(state.startDate, { picking = null }) { d -> vm.updateEditor { it.withStartDate(d) } }
         Picking.EndDate -> DatePick(state.endDate, { picking = null }) { d -> vm.updateEditor { it.copy(endDate = d) } }
         Picking.StartTime -> TimePick(state.startTime, f.is24Hour, { picking = null }) { t -> vm.updateEditor { it.withStartTime(t) } }
@@ -275,7 +275,7 @@ fun EventEditorScreen(vm: SunlithViewModel) {
         null -> Unit
     }
 
-    if (confirmDiscard) {
+    if (active && confirmDiscard) {
         AlertDialog(
             onDismissRequest = { confirmDiscard = false },
             title = { Text(stringResource(R.string.editor_discard_title)) },
@@ -284,7 +284,7 @@ fun EventEditorScreen(vm: SunlithViewModel) {
             dismissButton = { TextButton(onClick = { confirmDiscard = false }) { Text(stringResource(R.string.action_keep_editing)) } },
         )
     }
-    if (confirmDelete && state.id != null) {
+    if (active && confirmDelete && state.id != null) {
         DeleteDialog(series = state.editsSeries, onDismiss = { confirmDelete = false }) {
             confirmDelete = false
             vm.deleteEvent(state.id)

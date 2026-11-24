@@ -352,7 +352,6 @@ fun CalendarScreen(vm: SunlithViewModel, modifier: Modifier = Modifier) {
             if (vm.viewMode == mode) vm.goToday()
         }
     }
-    val newEvent = { vm.newEvent(if (vm.continuousTimeline()) vm.timelineActionDate() else vm.selectedDate) }
     val searchMorph = vm.searchMorph
     val searching = Screen.Search in vm.stack
     LaunchedEffect(searching, motion) {
@@ -426,7 +425,7 @@ fun CalendarScreen(vm: SunlithViewModel, modifier: Modifier = Modifier) {
             if (morphing || transitioning) Box(Modifier.fillMaxSize().pointerInput(Unit) {
                 awaitPointerEventScope { while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() } }
             })
-            BottomBar(vm, f, openPicker, newEvent,
+            BottomBar(vm, f, openPicker,
                 onStep = { if (vm.continuousTimeline()) vm.step(it) else swipe.animateStep(it) },
                 onStepView = { delta, speed -> viewSwipe.release(delta, speed, motion, scope) },
                 viewTarget = viewSwipe::peek,

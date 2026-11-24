@@ -95,9 +95,9 @@ internal class SchoolHttps(context: Context, private val label: String) {
     }
 
     companion object {
-        /** Reads at most [maxBytes] within 30 seconds, even when the server keeps trickling data. */
-        suspend fun body(connection: HttpsURLConnection, maxBytes: Int): ByteArray {
-            schoolRequire(connection.contentLengthLong <= maxBytes)
+        /** Reads within 30 seconds, enforcing the byte limit when one is supplied. */
+        suspend fun body(connection: HttpsURLConnection, maxBytes: Int?): ByteArray {
+            if (maxBytes != null) schoolRequire(connection.contentLengthLong <= maxBytes)
             val bytes = ByteArrayOutputStream()
             connection.inputStream.use { input ->
                 val buffer = ByteArray(8192)
@@ -107,7 +107,7 @@ internal class SchoolHttps(context: Context, private val label: String) {
                     if (System.nanoTime() > deadline) throw SocketTimeoutException("School response timed out")
                     val count = input.read(buffer)
                     if (count < 0) break
-                    schoolRequire(bytes.size() + count <= maxBytes)
+                    if (maxBytes != null) schoolRequire(count <= maxBytes - bytes.size())
                     bytes.write(buffer, 0, count)
                 }
             }

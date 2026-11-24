@@ -1,13 +1,8 @@
 package io.github.sunsind.sunlith
 
-import android.Manifest
 import android.content.Intent
 import android.content.ComponentName
-import android.database.ContentObserver
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.provider.CalendarContract
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -47,11 +42,9 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
-import io.github.sunsind.sunlith.system.hasPermission
 
 class MainActivity : ComponentActivity() {
     private val viewModel: SunlithViewModel by viewModels()
-    private var observer: ContentObserver? = null
     private var pendingHandoff by mutableStateOf<CalendarHandoff?>(null)
     private var activeHandoff: CalendarHandoff? = null
 
@@ -131,33 +124,14 @@ class MainActivity : ComponentActivity() {
         super.onSaveInstanceState(outState)
     }
 
-    override fun onStart() {
-        super.onStart()
-        registerObserver()
-    }
-
     override fun onResume() {
         super.onResume()
-        registerObserver()
         viewModel.onResume()
     }
 
     override fun onStop() {
-        observer?.let { runCatching { contentResolver.unregisterContentObserver(it) } }
-        observer = null
+        viewModel.onStop()
         super.onStop()
-    }
-
-    private fun registerObserver() {
-        if (observer != null) return
-        if (!hasPermission(Manifest.permission.READ_CALENDAR)) return
-        val next = object : ContentObserver(Handler(Looper.getMainLooper())) {
-            override fun onChange(selfChange: Boolean) = viewModel.onProviderChanged()
-        }
-        runCatching {
-            contentResolver.registerContentObserver(CalendarContract.CONTENT_URI, true, next)
-            observer = next
-        }
     }
 
     private fun handleIntent(intent: Intent?) {
@@ -183,7 +157,12 @@ class MainActivity : ComponentActivity() {
             intent.removeExtra(EXTRA_SCHOOL_SETTINGS)
             intent.removeExtra(EXTRA_SCHOOL_MESSAGES)
             if (schoolDate != null || schoolSettings || schoolMessages) {
-                viewModel.handleSchoolLink(schoolDate, schoolMessages)
+                val page = when {
+                    !schoolMessages -> SettingsActivity.Page.School
+                    intent.data?.lastPathSegment == "inbox" -> SettingsActivity.Page.Messages
+                    else -> SettingsActivity.Page.Notices
+                }
+                viewModel.handleSchoolLink(schoolDate, page)
                 return
             }
             val eventId = intent.getLongExtra(EXTRA_EVENT_ID, -1L)

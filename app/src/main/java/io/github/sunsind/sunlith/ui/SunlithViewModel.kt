@@ -2,9 +2,13 @@ package io.github.sunsind.sunlith.ui
 
 import android.app.Application
 import android.content.Context
+import android.database.ContentObserver
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.provider.CalendarContract
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -311,6 +315,10 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
     private var loadingRanges: EventRanges? = null
     private var targetWindow: ClosedRange<LocalDate>? = null
     private var loadGeneration = 0L
+    private var observingCalendar = false
+    private val calendarObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+        override fun onChange(selfChange: Boolean) = onProviderChanged()
+    }
     private var changeJob: Job? = null
     private var searchJob: Job? = null
     private var searchGeneration = 0L
@@ -350,12 +358,22 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
             stack.clear(); editor = null
             return
         }
+        if (!observingCalendar) {
+            runCatching { context.contentResolver.registerContentObserver(CalendarContract.CONTENT_URI, true, calendarObserver) }
+                .onSuccess { observingCalendar = true }
+        }
         if (changed) refreshApp()
         val calendarsChanged = settings.visibleCalendarIds(calendars) != activeIds
         if (calendarsChanged) invalidateSearch()
         // Keep an in-flight refresh only if it still uses the calendars chosen in Settings.
         if (changed || calendarsChanged || loadJob?.isActive != true) reload()
         pendingLink?.let { link -> pendingLink = null; link() }
+    }
+
+    fun onStop() {
+        if (!observingCalendar) return
+        context.contentResolver.unregisterContentObserver(calendarObserver)
+        observingCalendar = false
     }
 
     fun onCalendarPermissionResult() = onResume()
@@ -393,7 +411,7 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
         if (!enable) remindersEnabled = false
     }
 
-    fun onProviderChanged() {
+    private fun onProviderChanged() {
         if (!hasPermission) return
         changeJob?.cancel()
         changeJob = viewModelScope.launch {
@@ -761,13 +779,13 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
         }
     }
 
-    fun handleSchoolLink(date: LocalDate?, messages: Boolean) {
+    internal fun handleSchoolLink(date: LocalDate?, page: SettingsPage) {
         require(date == null || date.year in 1900..2100)
-        if (linkBlocked { handleSchoolLink(date, messages) }) return
+        if (linkBlocked { handleSchoolLink(date, page) }) return
         openCalendar()
         if (date != null) openDay(date, ring = true)
         else {
-            settingsPage = if (messages) SettingsPage.Messages else SettingsPage.School
+            settingsPage = page
         }
     }
 
@@ -811,12 +829,6 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
         editor = state
         editorInitial = state
         open(Screen.Editor)
-    }
-
-    fun addSchoolSuggestion(suggestion: io.github.sunsind.sunlith.school.SchoolNoticeSuggestion) {
-        newEvent(suggestion.date)
-        updateEditor { it.copy(title = suggestion.title, notes = suggestion.detail, allDay = true,
-            endDate = suggestion.date, reminders = emptyList()) }
     }
 
     fun editEvent(id: Long) {

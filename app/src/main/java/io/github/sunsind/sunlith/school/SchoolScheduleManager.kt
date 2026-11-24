@@ -7,6 +7,7 @@ import android.content.Context
 import android.os.SystemClock
 import android.util.Log
 import io.github.sunsind.sunlith.system.AppRefresh
+import io.github.sunsind.sunlith.system.hasCalendarAccess
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
@@ -49,9 +50,6 @@ class SchoolScheduleManager private constructor(private val context: Context) {
     private var record: SchoolRecord? = null
     private var pending: SchoolFeed? = null
     private var pendingPlan: SchoolJournal? = null
-    private var calendarChoices: List<SchoolCalendarChoice> = emptyList()
-    private var calendarsLoaded = false
-    private var defaultCalendar: Long? = null
     @Volatile private var activeRequest: Job? = null
     @Volatile private var foreground: Job? = null
     @Volatile private var foregroundWanted = false
@@ -73,7 +71,7 @@ class SchoolScheduleManager private constructor(private val context: Context) {
         }
     }
 
-    suspend fun connect(portalAddress: String, username: String, password: String, timeZone: String, calendarId: Long? = null) {
+    suspend fun connect(portalAddress: String, username: String, password: String) {
         val requestedGeneration = generation.get()
         scope.async {
             ready.await()
@@ -83,11 +81,15 @@ class SchoolScheduleManager private constructor(private val context: Context) {
                     stage = Stage.START
                     val stamp = requestedGeneration
                     if (generation.get() != stamp) throw CancellationException()
-                    val zone = try { ZoneId.of(timeZone) } catch (_: Exception) { throw SchoolFailure(SchoolError.INVALID_DATA) }
+                    if (!context.hasCalendarAccess()) throw SchoolFailure(SchoolError.CALENDAR_PERMISSION)
                     val client = SchoolPortalClient(portalAddress, language(), context)
-                    val destination = writer.destination(calendarId ?: record?.calendarId)
                     val previous = record
-                    if (previous != null && (previous.portal != client.base.toString() || previous.username != username.trim() || previous.calendarId != destination || previous.zone != zone.id)) throw SchoolFailure(SchoolError.INVALID_DATA)
+                    if (previous != null && (previous.portal != client.base.toString() || previous.username != username.trim())) throw SchoolFailure(SchoolError.INVALID_DATA)
+                    val zone = when {
+                        previous != null -> ZoneId.of(previous.zone)
+                        isMontmorencyPortal(client.base.toString()) -> ZoneId.of("America/Toronto")
+                        else -> ZoneId.systemDefault()
+                    }
                     stage = Stage.PORTAL
                     if (previous == null) notices.clear()
                     val (login, fetched) = withTimeout(180_000) {
@@ -97,9 +99,11 @@ class SchoolScheduleManager private constructor(private val context: Context) {
                     currentCoroutineContext().ensureActive()
                     if (generation.get() != stamp) throw CancellationException()
                     if (previous != null && previous.account != fetched.account) throw SchoolFailure(SchoolError.SIGN_IN)
+                    val destination = previous?.calendarId ?: writer.localCalendar()
                     val connected = (previous ?: SchoolRecord(client.base.toString(), username.trim(), password, zone.id, destination,
                         fetched.account, UUID.randomUUID().toString(), login.token, login.expiresAt, calendarIdentity = writer.calendarIdentity(destination)))
                         .copy(password = password, token = login.token, expiresAt = login.expiresAt, term = fetched.term.name, termSource = fetched.term)
+                    if (previous == null) writer.showCalendar(destination)
                     save(connected)
                     lastAttempt = SystemClock.elapsedRealtime()
                     val feed = withNotices(fetched, connected)
@@ -119,7 +123,7 @@ class SchoolScheduleManager private constructor(private val context: Context) {
     internal suspend fun refreshForJob() {
         notices.refreshForJob()
         if (refreshInternal(false, waitForLock = true) !in TRANSIENT) return
-        delay(JOB_RETRY_DELAY)
+        delay(SCHOOL_JOB_RETRY_DELAY)
         refreshInternal(false, waitForLock = true)
     }
     /** Called by the messages reader after college notices changed, so notice events update without waiting for the next periodic sync. */
@@ -201,19 +205,15 @@ class SchoolScheduleManager private constructor(private val context: Context) {
         ready.await()
         withContext(Dispatchers.IO) { mutex.withLock { pending = null; pendingPlan = null; notifier.clearReview(); publish() } }
     }
-    suspend fun setNotificationsEnabled(enabled: Boolean) = updateNotifications { it.copy(enabled = enabled) }
-    suspend fun setCategory(alert: SchoolAlert, enabled: Boolean) = updateNotifications {
-        it.copy(categories = if (enabled) it.categories + alert else it.categories - alert)
-    }
-    private suspend fun updateNotifications(transform: (SchoolNotificationPreferences) -> SchoolNotificationPreferences) {
+    suspend fun setNotificationsEnabled(enabled: Boolean) {
         scope.async {
             ready.await()
             mutex.withLock {
                 val current = record ?: return@withLock
-                val next = current.copy(notifications = transform(current.notifications))
+                val next = current.copy(notificationsEnabled = enabled)
                 save(next)
-                mutableState.value = mutableState.value.copy(notifications = next.notifications)
-                if (!next.notifications.enabled) notifier.clearAll()
+                mutableState.value = mutableState.value.copy(notificationsEnabled = enabled)
+                if (!enabled) notifier.clearAll()
             }
         }.await()
     }
@@ -251,12 +251,6 @@ class SchoolScheduleManager private constructor(private val context: Context) {
     fun onOpen() {
         scope.launch {
             ready.await()
-            mutex.withLock {
-                calendarChoices = try { writer.calendars() } catch (_: Exception) { emptyList() }
-                defaultCalendar = try { writer.destination(null) } catch (_: Exception) { null }
-                calendarsLoaded = true
-                mutableState.value = mutableState.value.copy(availableCalendars = calendarChoices, calendarId = record?.calendarId ?: defaultCalendar, calendarsLoaded = true)
-            }
             if (record != null) refreshInternal(true)
         }
     }
@@ -298,7 +292,7 @@ class SchoolScheduleManager private constructor(private val context: Context) {
         stage = Stage.PLAN
         val plan = preparedPlan ?: writer.plan(current, feed, today)
         val coveredBaseline = current.baseline.filter { !it.date.isBefore(feed.term.start) && !it.date.isAfter(feed.term.end) }
-        if (!confirmed && (plan.linked.isNotEmpty() || (feed.items.isEmpty() && coveredBaseline.any { !it.date.isBefore(today) }) || SchoolDiff.needsConfirmation(coveredBaseline, feed.items, today))) {
+        if (!confirmed && (plan.legacyLinkCount > 0 || (feed.items.isEmpty() && coveredBaseline.any { !it.date.isBefore(today) }) || SchoolDiff.needsConfirmation(coveredBaseline, feed.items, today))) {
             pending = feed; showPending(feed, plan); return
         }
         currentCoroutineContext().ensureActive()
@@ -307,7 +301,7 @@ class SchoolScheduleManager private constructor(private val context: Context) {
         withContext(NonCancellable) {
             if (generation.get() != stamp) throw CancellationException()
             val summary = writer.summary(current, plan)
-            val ledger = if (summary.added + summary.updated + summary.removed + summary.linked == 0) plan.after
+            val ledger = if (summary.added + summary.updated + summary.removed == 0 && plan.linked.isEmpty()) plan.after
                 else commitCalendar(current, plan)
             val next = current.copy(term = feed.term.name, termKey = feed.term.key, termSource = feed.term, ledger = ledger, baseline = feed.items, lastSuccess = plan.at, lastFailure = null, journal = null, pendingReview = null)
             save(next)
@@ -355,7 +349,7 @@ class SchoolScheduleManager private constructor(private val context: Context) {
         notifier.clearFailure()
         pendingPlan = actual
         publish()
-        mutableState.value = mutableState.value.copy(pendingChanges = writer.summary(current, actual), termName = feed.term.name)
+        mutableState.value = mutableState.value.copy(pendingChanges = writer.summary(current, actual))
     }
     private fun recover() {
         val current = record ?: return
@@ -417,15 +411,10 @@ class SchoolScheduleManager private constructor(private val context: Context) {
     private fun savedFailure(current: SchoolRecord?): SchoolError? = current?.lastFailure?.let { name -> SchoolError.entries.firstOrNull { it.name == name } }
     private fun publish() {
         val current = record
-        if (current != null) {
-            calendarChoices = try { writer.calendars() } catch (_: Exception) { emptyList() }
-            calendarsLoaded = true
-        }
-        val choices = calendarChoices
-        mutableState.value = if (current == null) SchoolScheduleState(availableCalendars = choices, calendarId = defaultCalendar, calendarsLoaded = calendarsLoaded, busy = mutableState.value.busy)
+        mutableState.value = if (current == null) SchoolScheduleState(busy = mutableState.value.busy)
         else SchoolScheduleState(connected = true, busy = mutableState.value.busy, portalAddress = current.portal, accountName = current.username,
-            termName = current.term, timeZone = current.zone, lastSuccessMillis = current.lastSuccess, error = savedFailure(current), calendarId = current.calendarId,
-            availableCalendars = choices, calendarsLoaded = calendarsLoaded, eventCount = current.ledger.size, notifications = current.notifications,
+            lastSuccessMillis = current.lastSuccess, error = savedFailure(current),
+            hasImportedEvents = current.ledger.isNotEmpty(), notificationsEnabled = current.notificationsEnabled,
             pendingChanges = if (pending != null) mutableState.value.pendingChanges else null)
     }
     private fun schedule() {
@@ -444,7 +433,6 @@ class SchoolScheduleManager private constructor(private val context: Context) {
     }
     companion object {
         private const val THROTTLE = 5 * 60_000L
-        private const val JOB_RETRY_DELAY = 45_000L
         /** Matches the School schedule screen's stale warning. */
         private const val LASTING_FAILURE = 24L * 60 * 60 * 1000
         private val TRANSIENT = setOf(SchoolError.NETWORK, SchoolError.UNAVAILABLE)

@@ -71,7 +71,7 @@ fun TodoScreen(vm: SunlithViewModel) {
     Scaffold(
         containerColor = p.background,
         topBar = {
-            ScreenTopBar(stringResource(R.string.todo_title), onNavigate = vm::back) {
+            ScreenTopBar(stringResource(R.string.todo_title)) {
                 IconButton(onClick = vm::reloadTodos) {
                     Icon(Icons.Outlined.Refresh, stringResource(R.string.todo_refresh), tint = p.ink)
                 }

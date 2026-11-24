@@ -16,13 +16,13 @@ internal class SchoolNotifications(private val context: Context) {
     fun changes(record: SchoolRecord, changes: List<SchoolDelta>) {
         val enabled = enabledChanges(record, changes)
         if (enabled.isEmpty() || !context.notificationsAllowed()) return
-        val categories = enabled.flatMap { it.categories intersect record.notifications.categories }.toSet()
+        val categories = enabled.flatMap { it.categories }.toSet()
         val labels = categories.sortedBy { it.ordinal }.joinToString(", ") { context.getString(it.label()) }
         val first = enabled.minBy { it.item.date }.item
         val detail = enabled.distinctBy { it.item.id }.take(6).joinToString("\n") { delta ->
             buildString {
                 append("${delta.item.date}: ${delta.item.title}")
-                if (SchoolAlert.TEACHER_ABSENCES in delta.categories && SchoolAlert.TEACHER_ABSENCES in record.notifications.categories) {
+                if (SchoolAlert.TEACHER_ABSENCES in delta.categories) {
                     delta.item.notes.take(2).forEach { append("\n"); append(it.take(300)) }
                 }
             }
@@ -32,7 +32,7 @@ internal class SchoolNotifications(private val context: Context) {
             "$labels\n$detail", first.date.toString())
     }
     fun messages(record: SchoolRecord, messages: List<SchoolAdminNotice>) {
-        if (!record.notifications.enabled || SchoolAlert.ADMINISTRATION_MESSAGES !in record.notifications.categories || !context.notificationsAllowed()) return
+        if (!record.notificationsEnabled || !context.notificationsAllowed()) return
         if (messages.isEmpty()) return
         if (messages.size > 3) {
             val text = context.resources.getQuantityString(R.plurals.school_admin_new_messages, messages.size, messages.size)
@@ -46,8 +46,19 @@ internal class SchoolNotifications(private val context: Context) {
                 NotificationCompat.CATEGORY_MESSAGE, preview) { setSubText(message.sender).setVisibility(NotificationCompat.VISIBILITY_PRIVATE) }
         }
     }
+    fun inbox(record: SchoolRecord, messages: List<SchoolMail>) {
+        if (messages.isEmpty() || !record.notificationsEnabled || !context.notificationsAllowed()) return
+        val newest = messages.maxBy { it.received }
+        val title = context.getString(R.string.school_inbox)
+        val text = if (messages.size == 1) newest.subject.ifBlank { newest.sender }
+            else context.resources.getQuantityString(R.plurals.school_inbox_new_mail, messages.size, messages.size)
+        post("school-message:inbox", INBOX, title, text, "inbox", NotificationCompat.CATEGORY_MESSAGE,
+            messages.take(10).joinToString("\n") { it.subject.ifBlank { it.sender } }) {
+            setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+        }
+    }
     fun failure(record: SchoolRecord, error: SchoolError) {
-        if (!record.notifications.enabled || SchoolAlert.CONNECTION_PROBLEMS !in record.notifications.categories || !context.notificationsAllowed()) return
+        if (!record.notificationsEnabled || !context.notificationsAllowed()) return
         val text = context.getString(if (error == SchoolError.SIGN_IN || error == SchoolError.MFA_REQUIRED) R.string.school_sync_sign_in_notification else R.string.school_sync_connection_notification)
         post("school-connection", PROBLEMS, context.getString(R.string.school_sync_notification_title), text, "connection", NotificationCompat.CATEGORY_ERROR) { setOnlyAlertOnce(true) }
     }
@@ -57,8 +68,8 @@ internal class SchoolNotifications(private val context: Context) {
             NotificationCompat.CATEGORY_EVENT) { setOnlyAlertOnce(true) }
     }
     fun clearReview() { context.getSystemService(NotificationManager::class.java).cancel("school-review", 0) }
-    private fun enabledChanges(record: SchoolRecord, changes: List<SchoolDelta>) = SchoolDiff.enabled(changes, record.notifications)
-        .filter { it.item.kind != SchoolNoticeInterpreter.NOTICE_KIND || SchoolAlert.ADMINISTRATION_MESSAGES !in record.notifications.categories }
+    private fun enabledChanges(record: SchoolRecord, changes: List<SchoolDelta>) =
+        if (record.notificationsEnabled) changes.filter { it.item.kind != SchoolNoticeInterpreter.NOTICE_KIND } else emptyList()
     fun clearFailure() { context.getSystemService(NotificationManager::class.java).cancel("school-connection", 0) }
     fun clearAll() {
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -79,17 +90,18 @@ internal class SchoolNotifications(private val context: Context) {
         manager.createNotificationChannel(NotificationChannel(CHANGES, context.getString(R.string.school_sync_changes_channel), NotificationManager.IMPORTANCE_DEFAULT).apply { group = "school" })
         manager.createNotificationChannel(NotificationChannel(PROBLEMS, context.getString(R.string.school_sync_problems_channel), NotificationManager.IMPORTANCE_DEFAULT).apply { group = "school" })
         manager.createNotificationChannel(NotificationChannel(MESSAGES, context.getString(R.string.school_alert_administration), NotificationManager.IMPORTANCE_DEFAULT).apply { group = "school" })
+        manager.createNotificationChannel(NotificationChannel(INBOX, context.getString(R.string.school_inbox), NotificationManager.IMPORTANCE_DEFAULT).apply { group = "school" })
         return manager
     }
     private fun open(kind: String, date: String?): PendingIntent {
         val intent = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
             .setData(Uri.parse("sunlith://school/$kind"))
         if (date != null) intent.putExtra("school_event_date", date)
-        else if (kind == "messages") intent.putExtra(MainActivity.EXTRA_SCHOOL_MESSAGES, true)
+        else if (kind == "messages" || kind == "inbox") intent.putExtra(MainActivity.EXTRA_SCHOOL_MESSAGES, true)
         else intent.putExtra("school_open_settings", true)
         return PendingIntent.getActivity(context, when (kind) { "review" -> 73203; "changes" -> 73201; "messages" -> 73204; else -> 73202 }, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
-    companion object { private const val CHANGES = "school_schedule_changes"; private const val PROBLEMS = "school_connection_problems"; private const val MESSAGES = "school_administration_messages" }
+    companion object { private const val CHANGES = "school_schedule_changes"; private const val PROBLEMS = "school_connection_problems"; private const val MESSAGES = "school_administration_messages"; private const val INBOX = "school_inbox_mail" }
 }
 
 internal fun SchoolAlert.label(): Int = when (this) {
@@ -101,6 +113,4 @@ internal fun SchoolAlert.label(): Int = when (this) {
     SchoolAlert.REMOVED_CLASSES -> R.string.school_alert_removed
     SchoolAlert.ASSESSMENTS -> R.string.school_alert_assessments
     SchoolAlert.SCHOOL_DAYS -> R.string.school_alert_school_days
-    SchoolAlert.CONNECTION_PROBLEMS -> R.string.school_alert_connection
-    SchoolAlert.ADMINISTRATION_MESSAGES -> R.string.school_alert_administration
 }

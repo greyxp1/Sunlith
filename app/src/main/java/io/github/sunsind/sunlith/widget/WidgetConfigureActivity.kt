@@ -41,7 +41,7 @@ class WidgetConfigureActivity : ComponentActivity() {
                 val palette = LocalPalette.current
                 SystemBarsForPalette()
                 Column(Modifier.fillMaxSize().background(palette.background).navigationBarsPadding()) {
-                    Box(Modifier.weight(1f)) { SettingsScreen(vm, widget = true, onBack = ::finish) }
+                    Box(Modifier.weight(1f)) { SettingsScreen(vm, widget = true) }
                     Button(onClick = ::applyAndFinish, modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                         Text(stringResource(R.string.action_done))
                     }

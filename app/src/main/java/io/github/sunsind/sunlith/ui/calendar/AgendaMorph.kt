@@ -199,7 +199,7 @@ private fun TextStyle.hasSameFont(other: TextStyle): Boolean =
         letterSpacing == other.letterSpacing && lineHeight == other.lineHeight &&
         textGeometricTransform == other.textGeometricTransform
 
-private fun DrawScope.drawEventTitle(
+internal fun DrawScope.drawEventTitle(
     layout: TextLayoutResult, at: Offset, color: Color, shadow: Shadow? = layout.layoutInput.style.shadow,
 ) {
     if (!layout.hasVisualOverflow || layout.lineCount == 0) {
@@ -213,8 +213,18 @@ private fun DrawScope.drawEventTitle(
     val rtl = layout.getParagraphDirection(layout.getLineStart(line)) == ResolvedTextDirection.Rtl
     val shift = if (rtl && layout.didOverflowWidth) (layout.multiParagraph.width - width).coerceAtLeast(0f) else 0f
     val origin = Offset(at.x - shift, at.y)
-    val edge = (if (rtl) layout.getLineLeft(line) else layout.getLineRight(line)).minus(shift).coerceIn(0f, width)
-    val fade = minOf(EventTitleFade.toPx(), if (rtl) width - edge else edge)
+    val naturalEdge = if (rtl) layout.getLineLeft(line) else layout.getLineRight(line)
+    val boundary = if (rtl) shift else width
+    val partialGlyph = if (layout.didOverflowWidth) {
+        val caret = layout.getOffsetForPosition(Offset(boundary, (lineTop + layout.getLineBottom(line)) / 2))
+        (maxOf(layout.getLineStart(line), caret - 1)..minOf(layout.getLineEnd(line) - 1, caret)).firstNotNullOfOrNull { index ->
+            layout.getBoundingBox(index).takeIf { it.left < boundary && it.right > boundary }
+        }
+    } else null
+    val fullGlyphEdge = partialGlyph?.let { if (rtl) it.right else it.left } ?: naturalEdge
+    val edge = (fullGlyphEdge - shift).coerceIn(0f, width)
+    val truncated = layout.didOverflowWidth || layout.multiParagraph.didExceedMaxLines
+    val fade = if (truncated) minOf(2.dp.toPx(), if (rtl) width - edge else edge) else 0f
     clipRect(at.x, at.y, at.x + width, at.y + height) {
         if (fade <= 0f) {
             drawText(layout, color = color, shadow = shadow, topLeft = origin)

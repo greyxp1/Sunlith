@@ -144,3 +144,11 @@ internal class SchoolPortalClient(address: String, private val language: String,
         }
     }
 }
+
+internal const val MONTMORENCY_PORTAL = "https://enligne.cmontmorency.qc.ca/ColNet/"
+
+internal fun isMontmorencyPortal(address: String): Boolean = runCatching {
+    SchoolPortalClient.normalize(address).toString().equals(
+        SchoolPortalClient.normalize(MONTMORENCY_PORTAL).toString(), ignoreCase = true,
+    )
+}.getOrDefault(false)

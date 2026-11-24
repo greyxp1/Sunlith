@@ -135,11 +135,9 @@ internal fun DrawScope.drawTimelineTile(axis: TimelineAxis, hour: Int, color: Co
         drawRoundRect(color, Offset(inset, top), Size(width, height), CornerRadius(minOf(EVENT_CORNER.toPx(), height / 2f)))
 }
 
-/** The current time across today's free time, the same rounded bar a class in progress shows inside its card. */
 internal fun DrawScope.drawNowLine(axis: TimelineAxis, minute: Int, colors: TimelineGridColors) =
     drawNowBar(colors.now, axis.minuteToY(minute), TIMELINE_BLOCK_INSET.toPx())
 
-/** The current-time bar, [edge] in from each side of the area it crosses plus the room its rounded ends take. */
 internal fun DrawScope.drawNowBar(color: Color, y: Float, edge: Float = 0f, left: Float = 0f, width: Float = size.width) {
     val inset = edge + 4.dp.toPx()
     drawLine(color, Offset(left + inset, y), Offset(left + width - inset, y), strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)

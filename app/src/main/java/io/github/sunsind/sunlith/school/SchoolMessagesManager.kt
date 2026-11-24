@@ -13,11 +13,14 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
@@ -115,6 +118,7 @@ internal class SchoolMessagesManager private constructor(private val context: Co
     private val store = SchoolMessagesStore(context)
     private val mutableState = MutableStateFlow(SchoolMessagesState())
     val state: StateFlow<SchoolMessagesState> = mutableState.asStateFlow()
+    val inbox = SchoolInbox(context, ::record)
     @Volatile private var cache: SchoolMessagesCache? = null
     @Volatile private var session: Pair<String, SchoolLogin>? = null
     @Volatile private var lastAttempt: Long? = null
@@ -124,8 +128,19 @@ internal class SchoolMessagesManager private constructor(private val context: Co
     init { scope.launch { synchronized(SchoolMessagesStore.LOCK) { cache = current(record()) }; publish(record()) } }
 
     suspend fun refresh() { scope.async { sync(force = true) }.await() }
-    fun refreshSoon() { scope.launch { sync(force = false) } }
-    suspend fun refreshForJob() { scope.async { sync(force = false, waitForActive = true) }.await() }
+    fun refreshSoon() {
+        scope.launch { sync(force = false) }
+        scope.launch { inbox.refresh(force = false) }
+    }
+    suspend fun refreshForJob() = coroutineScope {
+        launch {
+            if (inbox.refresh(force = false).isRetryableInboxFailure()) {
+                delay(SCHOOL_JOB_RETRY_DELAY)
+                inbox.refresh(force = false)
+            }
+        }
+        sync(force = false, waitForActive = true)
+    }
 
     /** Cache only. Before any successful administration read, notice events already in the calendar are kept as they are. */
     fun notices(record: SchoolRecord, term: SchoolTerm): SchoolNoticeEvents {
@@ -161,15 +176,16 @@ internal class SchoolMessagesManager private constructor(private val context: Co
 
     fun clear() {
         generation.incrementAndGet()
+        inbox.clear()
         active?.cancel()
         synchronized(SchoolMessagesStore.LOCK) { store.clear(); cache = null }
         session = null; lastAttempt = null; signInBlockedToken = null
         mutableState.value = SchoolMessagesState()
     }
 
-    suspend fun loadPortalLinks(): SchoolPortalLinks = scope.async {
+    suspend fun loadPortalLinks(): SchoolPortalLinks = withContext(Dispatchers.IO) {
         val stamp = generation.get()
-        val record = record()?.takeIf { it.disconnecting == null } ?: return@async SchoolPortalLinks.Failed(SchoolAdminStatus.NOT_LOADED)
+        val record = record()?.takeIf { it.disconnecting == null } ?: return@withContext SchoolPortalLinks.Failed(SchoolAdminStatus.NOT_LOADED)
         val client = client(record)
         val result = try {
             SchoolPortalLinks.Loaded(withTimeout(60_000) { withSession(client, record) { token -> client.portalLinks(token) } }.map { SchoolPortalLink(it.first, it.second) })
@@ -182,17 +198,17 @@ internal class SchoolMessagesManager private constructor(private val context: Co
             if (result is SchoolPortalLinks.Loaded) mutableState.value = mutableState.value.copy(portalLinksAvailable = result.links.isNotEmpty())
             result
         } else SchoolPortalLinks.Failed(SchoolAdminStatus.NOT_LOADED)
-    }.await()
+    }
 
-    suspend fun resolvePortalLink(code: String): String? = scope.async {
+    suspend fun resolvePortalLink(code: String): String? = withContext(Dispatchers.IO) {
         val stamp = generation.get()
-        val record = record() ?: return@async null
+        val record = record()?.takeIf { it.disconnecting == null } ?: return@withContext null
         val client = client(record)
         val link = withSession(client, record) { token ->
             if (client.portalLinks(token).none { it.first == code }) null else client.portalLink(token, code)
         }
         if (stillCurrent(record, stamp) != null) link else null
-    }.await()
+    }
 
     private suspend fun sync(force: Boolean, waitForActive: Boolean = false) {
         if (waitForActive) mutex.lock() else if (!mutex.tryLock()) return
@@ -271,9 +287,8 @@ internal class SchoolMessagesManager private constructor(private val context: Co
         val today = LocalDate.now(ZoneId.of(record.zone))
         mutableState.value = mutableState.value.copy(
             connected = true,
-            admin = c?.admin.orEmpty(), adminStatus = c?.adminStatus ?: SchoolAdminStatus.NOT_LOADED, adminUpdatedMillis = c?.adminAt,
+            admin = c?.admin.orEmpty(), adminStatus = c?.adminStatus ?: SchoolAdminStatus.NOT_LOADED,
             collegeNotices = notices.filter { !it.targetDate.isBefore(today.minusDays(14)) },
-            suggestions = SchoolNoticeInterpreter.suggestions(c?.admin.orEmpty(), today, notices.map { it.targetDate }.toSet()),
             portalUrl = runCatching { SchoolPortalClient.normalize(record.portal).resolve("../login.asp").normalize().toString() }.getOrNull(),
         )
     }

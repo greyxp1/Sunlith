@@ -17,7 +17,7 @@ internal data class SchoolHtmlPage(val uri: URI, val html: String)
 internal data class SchoolAdminResult(val outcome: SchoolAdminStatus, val rows: List<SchoolAdminRow> = emptyList(), val details: Map<String, SchoolAdminDetail> = emptyMap(), val detailsStale: Boolean = false)
 
 /**
- * Classic Col.NET web session (cookie based), used only to read "Message(s) de l'administration".
+ * Classic Col.NET web session (cookie based), used to read administration notices and the inbox.
  * Every URL is checked to stay on the same host under the Col.NET folder. Only transport error types are logged, and the session lives only in memory.
  */
 internal class SchoolClassicPortal(mobileBase: URI, context: Context) {
@@ -31,14 +31,7 @@ internal class SchoolClassicPortal(mobileBase: URI, context: Context) {
         val landing = try { signIn(username, password) } catch (e: SchoolFailure) {
             return SchoolAdminResult(e.reason.adminStatus())
         }
-        val pages = ArrayList<SchoolHtmlPage>().apply { add(landing) }
-        var frontier = listOf(landing)
-        repeat(2) {
-            frontier = frontier.flatMap { page ->
-                SchoolHtml.frames(SchoolHtml.tokens(page.html)).mapNotNull { SchoolAdminParser.sameFolder(it, page.uri, colnet) }
-            }.distinct().filter { uri -> pages.none { it.uri == uri } }.take(6).map { get(it) }
-            pages += frontier
-        }
+        val pages = portalPages(landing)
         val lists = pages.mapNotNull { page -> SchoolAdminParser.list(SchoolHtml.tables(SchoolHtml.tokens(page.html)), page.uri, colnet) }.distinct()
         if (lists.size != 1) return SchoolAdminResult(SchoolAdminStatus.UNRECOGNIZED)
         val rows = lists.single()
@@ -56,6 +49,52 @@ internal class SchoolClassicPortal(mobileBase: URI, context: Context) {
             }
         }
         return SchoolAdminResult(SchoolAdminStatus.OK, rows, details, detailsStale)
+    }
+
+    suspend fun openInbox(username: String, password: String): SchoolHtmlPage {
+        val pages = portalPages(signIn(username, password))
+        val path = colnet.resolve("courriels.asp").path
+        val link = pages.firstNotNullOfOrNull { page ->
+            SchoolHtml.attributes(SchoolHtml.tokens(page.html), "a", "href").firstNotNullOfOrNull { href ->
+                SchoolAdminParser.sameFolder(href, page.uri, colnet)?.takeIf {
+                    it.path.equals(path, ignoreCase = true) && !it.rawQuery.isNullOrBlank()
+                }
+            }
+        } ?: throw SchoolFailure(SchoolError.INVALID_DATA)
+        return get(link)
+    }
+
+    suspend fun nextInbox(request: SchoolInboxNext): SchoolHtmlPage = send(request.uri, request.form)
+
+    suspend fun inboxImage(uri: URI, maxBytes: Int): String? {
+        if (SchoolAdminParser.sameFolder(uri.toString(), colnet, colnet) == null) return null
+        return try {
+            https.exchange(uri, null, "application/x-www-form-urlencoded", { connection ->
+                connection.connectTimeout = 4_000
+                connection.readTimeout = 4_000
+                connection.setRequestProperty("Accept", "image/*")
+                if (cookies.isNotEmpty()) connection.setRequestProperty("Cookie", cookies.entries.joinToString("; ") { "${it.key}=${it.value}" })
+            }) { connection, status ->
+                val type = connection.contentType.orEmpty().substringBefore(';').trim().lowercase(Locale.ROOT)
+                if (status != 200 || type !in MAIL_IMAGE_TYPES) null
+                else {
+                    val bytes = SchoolHttps.body(connection, maxBytes)
+                    "data:$type;base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                }
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
+    }
+
+    private suspend fun portalPages(landing: SchoolHtmlPage): List<SchoolHtmlPage> {
+        val pages = arrayListOf(landing)
+        var frontier = listOf(landing)
+        repeat(2) {
+            frontier = frontier.flatMap { page ->
+                SchoolHtml.frames(SchoolHtml.tokens(page.html)).mapNotNull { SchoolAdminParser.sameFolder(it, page.uri, colnet) }
+            }.distinct().filter { uri -> pages.none { it.uri == uri } }.take(6).map { get(it) }
+            pages += frontier
+        }
+        return pages
     }
 
     private suspend fun signIn(username: String, password: String): SchoolHtmlPage {
@@ -97,7 +136,8 @@ internal class SchoolClassicPortal(mobileBase: URI, context: Context) {
             if (status !in 200..299) throw SchoolFailure(SchoolError.NETWORK)
             val type = connection.contentType.orEmpty()
             if (!type.substringBefore(';').trim().equals("text/html", true)) throw SchoolFailure(SchoolError.INVALID_DATA)
-            decode(SchoolHttps.body(connection, MAX_BYTES), type) to null
+            val maxBytes = MAX_BYTES.takeUnless { uri.path.equals(colnet.resolve("gestcourr.asp").path, true) }
+            decode(SchoolHttps.body(connection, maxBytes), type) to null
         }
     } catch (_: IOException) { throw SchoolFailure(SchoolError.NETWORK) }
 
@@ -160,3 +200,6 @@ internal class SchoolClassicPortal(mobileBase: URI, context: Context) {
         }
     }
 }
+
+internal val MAIL_IMAGE_TYPES = setOf("image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp", "image/avif", "image/svg+xml")
+internal val MAIL_IMAGE_EXTENSIONS = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "avif", "svg")

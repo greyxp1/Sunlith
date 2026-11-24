@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="school_inbox">Boîte de réception</string>
+    <plurals name="school_inbox_new_mail">
+        <item quantity="one">%d nouveau courriel</item>
+        <item quantity="other">%d nouveaux courriels</item>
+    </plurals>
+    <string name="school_inbox_empty">Votre boîte de réception Col.NET est vide.</string>
+    <string name="school_inbox_unavailable">Impossible de charger la boîte de réception Col.NET.</string>
+    <string name="school_inbox_message_unavailable">Impossible d’ouvrir ce message.</string>
     <string name="school_messages_title">Messages du Collège</string>
-    <string name="school_messages_open">Messages du Collège</string>
     <string name="school_admin_open_notice">Voir l\'avis</string>
-    <string name="school_messages_refresh">Actualiser</string>
-    <string name="school_messages_updated">Mis à jour %1$s</string>
-    <string name="school_messages_never">Pas encore chargé</string>
     <string name="school_messages_not_connected">Connectez d\'abord l\'horaire scolaire.</string>
     <string name="school_admin_notices">Avis du Collège</string>
     <string name="school_admin_confirmed">Confirmé</string>
@@ -19,8 +23,6 @@
     <string name="school_admin_show_day">Voir la journée</string>
     <string name="school_admin_superseded">Remplace un avis précédent pour cette journée.</string>
     <string name="school_admin_title_only">Seul le titre a pu être lu. Ouvrez Col.NET pour le texte complet.</string>
-    <string name="school_admin_suggestions_note">Pas ajoutées automatiquement. Vérifiez l\'avis avant de les ajouter.</string>
-    <string name="school_admin_suggestion_add">Ajouter au calendrier</string>
     <string name="school_admin_list">Tous les messages de l\'administration</string>
     <string name="school_admin_empty">Aucun message de l\'administration.</string>
     <string name="school_admin_status_sign_in">La connexion Web à Col.NET n\'a pas fonctionné pour les messages de l\'administration. La synchronisation de l\'horaire n\'est pas touchée.</string>
@@ -48,7 +50,23 @@
         <item quantity="one">%d nouveau message de l\'administration</item>
         <item quantity="other">%d nouveaux messages de l\'administration</item>
     </plurals>
-    <string name="school_messages_section_main">Messages</string>
-    <string name="school_messages_section_dates">Dates trouvées</string>
-    <string name="school_messages_section_label">Section</string>
+    <string name="school_messages_section_main">Avis</string>
+    <string name="school_inbox_tab">Courriels</string>
+    <string name="school_mail_attachments">Pièces jointes</string>
+    <string name="school_notice_detail">Avis</string>
+    <string name="school_inbox_unread">Non lu</string>
+    <string name="school_inbox_read">Lu</string>
+    <string name="school_open_message">Ouvrir le message</string>
+    <string name="school_inbox_yesterday">Hier</string>
+    <string name="school_mail_from">De %1$s</string>
+    <string name="school_inbox_loading">Chargement des courriels…</string>
+    <string name="school_messages_refreshing">Actualisation…</string>
+    <string name="school_inbox_loading_older">Chargement des anciens courriels…</string>
+    <string name="school_inbox_page_failed">Impossible de charger les anciens courriels.</string>
+    <string name="school_inbox_opening">Ouverture du courriel…</string>
+    <string name="school_inbox_sign_in">Impossible d’ouvrir une session dans votre boîte de réception Col.NET.</string>
+    <string name="school_inbox_network">Impossible de joindre Col.NET pour actualiser vos courriels.</string>
+    <string name="school_mail_opening_link">Ouverture de Col.NET…</string>
+    <string name="school_mail_loading_links">Chargement des liens…</string>
+    <string name="school_mail_unread">Courriels non lus</string>
 </resources>

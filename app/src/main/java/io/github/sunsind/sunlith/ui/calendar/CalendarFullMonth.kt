@@ -1,6 +1,5 @@
 package io.github.sunsind.sunlith.ui.calendar
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -37,14 +36,13 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.ResolvedTextDirection
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
@@ -179,7 +177,10 @@ private fun FullMonthCell(
                 val labels = events.take(slots).map { event ->
                     val colors = eventColors(event, p, courses, dimmed = !inMonth)
                     val title = event.displayTitle().ifBlank { untitled }
-                    val text = measurer.measure(title, chipStyle.copy(color = colors.content), maxLines = 1, softWrap = false)
+                    val markerWidth = if (event.todo) 10.dp.toPx() else 0f
+                    val width = (available - 2 * padding - markerWidth).toInt().coerceAtLeast(0)
+                    val text = measurer.measure(title, chipStyle, maxLines = 1, softWrap = false,
+                        overflow = TextOverflow.Visible, constraints = Constraints(maxWidth = width))
                     Triple(event, colors, text)
                 }
                 val hiddenColors = events.asSequence().drop(slots).take(2)
@@ -219,17 +220,15 @@ private fun FullMonthCell(
                         val left = bounds.left + padding + if (rtl) 0f else markerWidth
                         val right = bounds.right - padding - if (rtl) markerWidth else 0f
                         if (right > left) {
-                            val overflow = text.size.width > right - left
-                            val rightAligned = if (overflow) text.getParagraphDirection(0) == ResolvedTextDirection.Rtl else rtl
-                            val x = if (rightAligned) right - text.size.width else left
+                            val x = if (rtl && !text.didOverflowWidth) right - text.size.width else left
                             clipRect(left, y, right, bounds.bottom) {
-                                drawText(text, topLeft = Offset(x, y + (chipHeight - text.size.height) / 2))
+                                drawEventTitle(text, Offset(x, y + (chipHeight - text.size.height) / 2), colors.content)
                             }
                         }
                     }
                 }
             }
-            .clickable(onClickLabel = selectLabel, role = Role.Button, onClick = onClick)
+            .calendarTap(onClickLabel = selectLabel, onClick = onClick)
             .semantics { contentDescription = description; selected = isSelected },
     )
 }

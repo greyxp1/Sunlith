@@ -29,6 +29,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -88,7 +89,6 @@ import io.github.sunsind.sunlith.system.needsNotificationPermission
 @Composable
 internal fun DeviceLinkScreen(
     vm: SunlithViewModel,
-    onBack: () -> Unit,
     page: Page,
     onOpenPage: (Page) -> Unit,
 ) {
@@ -224,7 +224,7 @@ internal fun DeviceLinkScreen(
     }
 
     if (page == Page.History) {
-        ConnectionHistoryScreen(history, busy, onBack = onBack, onClear = {
+        ConnectionHistoryScreen(history, busy, onClear = {
             scope.launch {
                 busy = true
                 try { withContext(Dispatchers.IO) { DeviceLink.clearHistory(context) } }
@@ -235,7 +235,7 @@ internal fun DeviceLinkScreen(
         return
     }
     if (page == Page.Diagnostics) {
-        Scaffold(containerColor = p.background, topBar = { ScreenTopBar(stringResource(R.string.device_link_details), onNavigate = onBack) }) { padding ->
+        Scaffold(containerColor = p.background, topBar = { ScreenTopBar(stringResource(R.string.device_link_details)) }) { padding ->
             LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(vertical = 16.dp)) {
                 item { ValueRow(stringResource(R.string.device_link_status), stringResource(if (connection.running) R.string.device_link_on else R.string.device_link_off), stacked = true) }
                 item { ValueRow(stringResource(R.string.connection_tailscale), stringResource(tailscaleStatusRes(tailscaleAddress)), stacked = true) }
@@ -256,7 +256,7 @@ internal fun DeviceLinkScreen(
         return
     }
     Scaffold(containerColor = p.background, topBar = {
-        ScreenTopBar(stringResource(R.string.device_link_title), onNavigate = onBack)
+        ScreenTopBar(stringResource(R.string.device_link_title))
     }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(bottom = 40.dp)) {
             if (paired == true) item {
@@ -354,8 +354,8 @@ internal fun DeviceLinkScreen(
                         item { ClickRow(stringResource(R.string.connection_setup_share_again), enabled = !busy) { sharePairingUri(uri) } }
                     }
                 }
-                item { ClickRow(stringResource(R.string.device_link_history)) { onOpenPage(Page.History) } }
-                item { ClickRow(stringResource(R.string.device_link_details)) { onOpenPage(Page.Diagnostics) } }
+                item { ClickRow(stringResource(R.string.device_link_history), icon = Icons.AutoMirrored.Outlined.KeyboardArrowRight) { onOpenPage(Page.History) } }
+                item { ClickRow(stringResource(R.string.device_link_details), icon = Icons.AutoMirrored.Outlined.KeyboardArrowRight) { onOpenPage(Page.Diagnostics) } }
                 item {
                     ClickRow(stringResource(R.string.device_link_guide)) { context.openUrl(COMPUTER_SETUP_GUIDE, vm) }
                 }
@@ -421,12 +421,12 @@ private fun TailscaleStatus(detected: Boolean?) {
 }
 
 @Composable
-private fun ConnectionHistoryScreen(history: List<DeviceLinkChange>?, busy: Boolean, onBack: () -> Unit, onClear: () -> Unit) {
+private fun ConnectionHistoryScreen(history: List<DeviceLinkChange>?, busy: Boolean, onClear: () -> Unit) {
     val p = LocalPalette.current
     val context = LocalContext.current
     var confirmClear by rememberSaveable { mutableStateOf(false) }
     Scaffold(containerColor = p.background, topBar = {
-        ScreenTopBar(stringResource(R.string.device_link_history), onNavigate = onBack, actions = {
+        ScreenTopBar(stringResource(R.string.device_link_history), actions = {
             if (!history.isNullOrEmpty()) TextButton(onClick = { confirmClear = true }, enabled = !busy) { Text(stringResource(R.string.device_link_history_clear)) }
         })
     }) { padding ->

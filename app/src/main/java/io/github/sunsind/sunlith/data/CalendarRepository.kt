@@ -32,17 +32,22 @@ class CalendarRepository(context: Context) {
         return resolver.query(
             Calendars.CONTENT_URI,
             arrayOf(Calendars._ID, Calendars.CALENDAR_DISPLAY_NAME, Calendars.ACCOUNT_NAME, Calendars.CALENDAR_COLOR,
-                Calendars.CALENDAR_ACCESS_LEVEL, Calendars.VISIBLE, Calendars.ACCOUNT_TYPE),
-            null, null, "${Calendars.CALENDAR_DISPLAY_NAME} COLLATE NOCASE ASC",
+                Calendars.CALENDAR_ACCESS_LEVEL, Calendars.VISIBLE, Calendars.ACCOUNT_TYPE, Calendars.NAME),
+            "${Calendars.SYNC_EVENTS} IS NOT 0 OR ${Calendars.ACCOUNT_TYPE} = ?",
+            arrayOf(CalendarContract.ACCOUNT_TYPE_LOCAL), "${Calendars.CALENDAR_DISPLAY_NAME} COLLATE NOCASE ASC",
         )?.use { cursor ->
             buildList {
-                while (cursor.moveToNext()) add(DeviceCalendar(
-                    cursor.long(Calendars._ID), cursor.string(Calendars.CALENDAR_DISPLAY_NAME).ifBlank { "Calendar" },
-                    cursor.string(Calendars.ACCOUNT_NAME), cursor.int(Calendars.CALENDAR_COLOR),
-                    cursor.int(Calendars.CALENDAR_ACCESS_LEVEL) >= Calendars.CAL_ACCESS_CONTRIBUTOR,
-                    cursor.int(Calendars.VISIBLE) != 0,
-                    cursor.string(Calendars.ACCOUNT_TYPE) == CalendarContract.ACCOUNT_TYPE_LOCAL,
-                ))
+                while (cursor.moveToNext()) {
+                    val account = cursor.string(Calendars.ACCOUNT_NAME)
+                    val local = cursor.string(Calendars.ACCOUNT_TYPE) == CalendarContract.ACCOUNT_TYPE_LOCAL
+                    val name = if (local && account == LOCAL_ACCOUNT && cursor.string(Calendars.NAME) == LOCAL_NAME) LOCAL_ACCOUNT
+                        else cursor.string(Calendars.CALENDAR_DISPLAY_NAME).ifBlank { "Calendar" }
+                    add(DeviceCalendar(
+                        cursor.long(Calendars._ID), name, account, cursor.int(Calendars.CALENDAR_COLOR),
+                        cursor.int(Calendars.CALENDAR_ACCESS_LEVEL) >= Calendars.CAL_ACCESS_CONTRIBUTOR,
+                        cursor.int(Calendars.VISIBLE) != 0, local,
+                    ))
+                }
             }
         } ?: emptyList()
     }
@@ -319,8 +324,8 @@ class CalendarRepository(context: Context) {
         val values = ContentValues().apply {
             put(Calendars.ACCOUNT_NAME, LOCAL_ACCOUNT)
             put(Calendars.ACCOUNT_TYPE, CalendarContract.ACCOUNT_TYPE_LOCAL)
-            put(Calendars.NAME, "sunlith-local")
-            put(Calendars.CALENDAR_DISPLAY_NAME, context.getString(R.string.local_calendar_name))
+            put(Calendars.NAME, LOCAL_NAME)
+            put(Calendars.CALENDAR_DISPLAY_NAME, LOCAL_ACCOUNT)
             put(Calendars.CALENDAR_COLOR, 0xFF737373.toInt())
             put(Calendars.CALENDAR_ACCESS_LEVEL, Calendars.CAL_ACCESS_OWNER)
             put(Calendars.OWNER_ACCOUNT, LOCAL_ACCOUNT)
@@ -520,6 +525,7 @@ class CalendarRepository(context: Context) {
 
     companion object {
         private const val LOCAL_ACCOUNT = "Sunlith"
+        private const val LOCAL_NAME = "sunlith-local"
         private val STORED_PROJECTION = arrayOf(Events._ID, Events.CALENDAR_ID, Events.TITLE, Events.DESCRIPTION,
             Events.EVENT_LOCATION, Events.DTSTART, Events.DTEND, Events.DURATION, Events.ALL_DAY,
             Events.EVENT_TIMEZONE, Events.RRULE, Events.UID_2445, Events.EXDATE, Events.RDATE, Events.EXRULE,

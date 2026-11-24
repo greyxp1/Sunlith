@@ -11,32 +11,28 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ExpandLess
-import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
@@ -44,7 +40,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -80,7 +75,6 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -98,36 +92,19 @@ import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.system.notificationsAllowed
 import io.github.sunsind.sunlith.ui.ClickRow
 import io.github.sunsind.sunlith.ui.LocalPalette
-import io.github.sunsind.sunlith.ui.Note
 import io.github.sunsind.sunlith.ui.Notice
 import io.github.sunsind.sunlith.ui.ScreenTopBar
-import io.github.sunsind.sunlith.ui.SectionTitle
 import io.github.sunsind.sunlith.ui.SurfaceCard
 import io.github.sunsind.sunlith.ui.ToggleRow
 import io.github.sunsind.sunlith.ui.ValueRow
 import io.github.sunsind.sunlith.ui.settings.checkColors
 import io.github.sunsind.sunlith.ui.settings.openAppSettings
-import java.time.Instant
-import java.time.ZoneId
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import io.github.sunsind.sunlith.system.needsNotificationPermission
 
 private const val STALE_AFTER_MILLIS = 24L * 60 * 60 * 1000
-private const val MONTMORENCY_PORTAL = "https://enligne.cmontmorency.qc.ca/ColNet/"
-
-private fun isMontmorencyPortal(address: String) = runCatching {
-    SchoolPortalClient.normalize(address).toString().equals(SchoolPortalClient.normalize(MONTMORENCY_PORTAL).toString(), ignoreCase = true)
-}.getOrDefault(false)
-
-private val AlertGroups = listOf(
-    R.string.school_group_classes to listOf(
-        SchoolAlert.CLASS_TIMES, SchoolAlert.ROOMS, SchoolAlert.TEACHERS, SchoolAlert.ADDED_CLASSES, SchoolAlert.REMOVED_CLASSES,
-    ),
-    R.string.school_group_notices to listOf(SchoolAlert.TEACHER_ABSENCES, SchoolAlert.ASSESSMENTS, SchoolAlert.SCHOOL_DAYS, SchoolAlert.ADMINISTRATION_MESSAGES),
-    R.string.school_group_connection to listOf(SchoolAlert.CONNECTION_PROBLEMS),
-)
 
 private fun SchoolError.message(): Int = when (this) {
     SchoolError.INVALID_PORTAL -> R.string.school_error_portal
@@ -150,37 +127,26 @@ private fun Context.openNotificationSettings() {
     runCatching { startActivity(intent) }.onFailure { openAppSettings() }
 }
 
-private fun zoneLabel(id: String): String {
-    val offset = runCatching { ZoneId.of(id).rules.getOffset(Instant.now()).id }.getOrNull()
-    val utc = when (offset) { null -> ""; "Z" -> " (UTC)"; else -> " (UTC$offset)" }
-    return id.replace('_', ' ') + utc
-}
-
-internal enum class SchoolPage { Overview, Alerts, Connection, SignIn }
-
 @Composable
 internal fun SchoolScheduleScreen(
-    controller: SchoolScheduleManager, onBack: () -> Unit, onChooseCalendars: () -> Unit, onOpenMessages: () -> Unit,
-    initialPage: SchoolPage, onOpenPage: (SchoolPage) -> Unit,
+    controller: SchoolScheduleManager,
 ) {
     val p = LocalPalette.current
     val state by controller.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var signingIn by rememberSaveable { mutableStateOf(false) }
-    val currentPage = if (!state.connected || signingIn) SchoolPage.SignIn else initialPage
-    val title = stringResource(when (currentPage) {
-        SchoolPage.Alerts -> R.string.school_notifications
-        SchoolPage.Connection -> R.string.school_connection_details
-        SchoolPage.SignIn -> if (state.connected) R.string.school_sign_in_again else R.string.school_title
-        SchoolPage.Overview -> R.string.school_title
+    val showSignIn = !state.connected || signingIn
+    val reviewingSetup = !showSignIn && (state.pendingChanges?.legacyLinks ?: 0) > 0
+    val title = stringResource(when {
+        signingIn && state.connected -> R.string.school_sign_in_again
+        reviewingSetup -> R.string.school_finish_setup
+        else -> R.string.school_title
     })
 
-    val localBack = currentPage == SchoolPage.SignIn && state.connected && !state.busy
-    val back: () -> Unit = { if (localBack) signingIn = false else onBack() }
-    BackHandler(enabled = localBack, onBack = back)
+    BackHandler(enabled = signingIn && state.connected && !state.busy) { signingIn = false }
 
-    Scaffold(containerColor = p.background, topBar = { ScreenTopBar(title, onNavigate = back) }) { pad ->
-        key(currentPage) {
+    Scaffold(containerColor = p.background, topBar = { ScreenTopBar(title) }) { pad ->
+        key(showSignIn, reviewingSetup) {
             var failed by remember { mutableStateOf(false) }
             fun launchAction(action: suspend () -> Unit, after: () -> Unit = {}) {
                 failed = false
@@ -202,19 +168,9 @@ internal fun SchoolScheduleScreen(
             ) {
                 if (failed) Notice(stringResource(R.string.school_error_generic), danger = true)
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
-                    when (currentPage) {
-                        SchoolPage.Overview -> ConnectionError(state, onSignInAgain = { signingIn = true })
-                        SchoolPage.Connection -> ConnectionError(state)
-                        else -> Unit
-                    }
-                    when (currentPage) {
-                        SchoolPage.SignIn -> SignInForm(
-                            state = state,
-                            changing = state.connected,
-                            onCancel = back,
-                            onChooseCalendars = onChooseCalendars,
-                        ) { portal, user, password, zone, calendarId, clear ->
-                            launchAction({ controller.connect(portal, user, password, zone, calendarId) }) {
+                    if (showSignIn) {
+                        SignInForm(state = state, changing = state.connected) { portal, user, password, clear ->
+                            launchAction({ controller.connect(portal, user, password) }) {
                                 val now = controller.state.value
                                 if (now.connected && now.error == null) {
                                     clear()
@@ -222,29 +178,22 @@ internal fun SchoolScheduleScreen(
                                 }
                             }
                         }
-                        SchoolPage.Overview -> {
-                            state.pendingChanges?.let { changes ->
-                                PendingCard(
-                                    changes, state.busy,
-                                    onApply = { launchAction({ controller.applyPendingChanges() }) },
-                                    onDiscard = { launchAction({ controller.discardPendingChanges() }) },
-                                )
-                            }
-                            StatusCard(state, onSync = { launchAction({ controller.refresh() }) })
-                            ClickRow(stringResource(R.string.school_messages_open), onClick = onOpenMessages)
-                            ClickRow(stringResource(R.string.school_notifications)) { onOpenPage(SchoolPage.Alerts) }
-                            ClickRow(stringResource(R.string.school_connection_details)) { onOpenPage(SchoolPage.Connection) }
+                    } else {
+                        ConnectionError(state) { signingIn = true }
+                        state.pendingChanges?.let { changes ->
+                            PendingCard(
+                                changes, state.busy,
+                                onApply = { launchAction({ controller.applyPendingChanges() }) },
+                                onDiscard = { launchAction({ controller.discardPendingChanges() }) },
+                            )
                         }
-                        SchoolPage.Alerts -> NotificationsSection(
-                            state.notifications,
-                            onEnabled = { enabled -> launchAction({ controller.setNotificationsEnabled(enabled) }) },
-                            onCategory = { alert, enabled -> launchAction({ controller.setCategory(alert, enabled) }) },
-                        )
-                        SchoolPage.Connection -> ConnectionDetails(
-                            state,
-                            onSignInAgain = { signingIn = true },
-                            onDisconnect = { remove -> launchAction({ controller.disconnect(remove) }) },
-                        )
+                        if (!reviewingSetup) {
+                            SyncSection(state, onSync = { launchAction({ controller.refresh() }) },
+                                onDisconnect = { remove -> launchAction({ controller.disconnect(remove) }) })
+                            NotificationsSection(state.notificationsEnabled) { enabled ->
+                                launchAction({ controller.setNotificationsEnabled(enabled) })
+                            }
+                        }
                     }
                 }
             }
@@ -256,9 +205,7 @@ internal fun SchoolScheduleScreen(
 private fun SignInForm(
     state: SchoolScheduleState,
     changing: Boolean,
-    onCancel: () -> Unit,
-    onChooseCalendars: () -> Unit,
-    onConnect: (String, String, String, String, Long?, () -> Unit) -> Unit,
+    onConnect: (String, String, String, () -> Unit) -> Unit,
 ) {
     val p = LocalPalette.current
     var portal by rememberSaveable { mutableStateOf(state.portalAddress) }
@@ -268,29 +215,17 @@ private fun SignInForm(
     // Never saved to the instance state bundle.
     var password by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
-    var zone by rememberSaveable { mutableStateOf(state.timeZone) }
-    var chosenCalendar by rememberSaveable { mutableStateOf(state.calendarId) }
-    var more by rememberSaveable { mutableStateOf(false) }
-    var pickZone by rememberSaveable { mutableStateOf(false) }
-    val calendars = state.availableCalendars
-    val calendarId = if (changing) state.calendarId else (chosenCalendar?.takeIf { id -> calendars.any { it.id == id } }
-        ?: state.calendarId?.takeIf { id -> calendars.any { it.id == id } }
-        ?: calendars.firstOrNull()?.id)
-    val destination = calendars.firstOrNull { it.id == calendarId }
     val busy = state.busy
-    val ready = !busy && calendarId != null && school.isNotBlank() && portal.isNotBlank() && username.isNotBlank() && password.isNotEmpty()
+    val ready = !busy && school.isNotBlank() && portal.isNotBlank() && username.isNotBlank() && password.isNotEmpty()
     val submit = {
         if (ready) {
             showPassword = false
-            onConnect(portal.trim(), username.trim(), password, zone, calendarId) { password = "" }
+            onConnect(portal.trim(), username.trim(), password) { password = "" }
         }
     }
 
-    SectionTitle(stringResource(R.string.school_provider_colnet))
-    if (!changing) Note(stringResource(R.string.school_intro))
     if (changing) ValueRow(stringResource(R.string.school_institution), stringResource(if (school == "montmorency") R.string.school_montmorency else R.string.school_other_colnet), stacked = true)
     else ClickRow(
-        stringResource(R.string.school_institution),
         stringResource(when (school) { "montmorency" -> R.string.school_montmorency; "custom" -> R.string.school_other_colnet; else -> R.string.school_choose_institution }),
         enabled = !busy,
     ) { pickSchool = true }
@@ -350,40 +285,6 @@ private fun SignInForm(
             colors = schoolFieldColors(),
             modifier = Modifier.fillMaxWidth().semantics { contentType = ContentType.Password },
         )
-        Text(stringResource(R.string.school_private_note), color = p.muted, style = MaterialTheme.typography.bodySmall)
-    }
-
-    when {
-        calendars.size > 1 && !changing -> {
-            SectionTitle(stringResource(R.string.school_destination))
-            Column(Modifier.selectableGroup()) {
-                calendars.forEach { cal ->
-                    val on = cal.id == calendarId
-                    Row(
-                        Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                            .selectable(on, enabled = !busy, role = Role.RadioButton) { chosenCalendar = cal.id }
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        RadioButton(selected = on, onClick = null, colors = RadioButtonDefaults.colors(selectedColor = p.accent, unselectedColor = p.faint))
-                        Spacer(Modifier.width(12.dp))
-                        Text(cal.name, Modifier.weight(1f), color = p.ink, style = MaterialTheme.typography.bodyLarge)
-                    }
-                }
-            }
-        }
-        destination != null -> Note(stringResource(R.string.school_destination_single, destination.name))
-        changing && state.calendarsLoaded -> Notice(stringResource(R.string.school_error_calendar_permission), danger = true)
-        state.calendarsLoaded -> Notice(stringResource(R.string.school_no_calendar), action = stringResource(R.string.action_choose_calendars), onAction = onChooseCalendars)
-    }
-
-    ExpandRow(stringResource(R.string.school_more_options), more) { more = !more }
-    if (more) {
-        if (changing) ValueRow(stringResource(R.string.school_time_zone), zoneLabel(zone), stacked = true)
-        else ClickRow(
-            stringResource(R.string.school_time_zone), zoneLabel(zone), enabled = !busy,
-        ) { pickZone = true }
-        Note(stringResource(R.string.school_time_zone_sub))
     }
 
     Column(Modifier.padding(horizontal = 16.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -400,27 +301,20 @@ private fun SignInForm(
                 Text(stringResource(R.string.school_connect))
             }
         }
-        if (changing) {
-            TextButton(onClick = onCancel, enabled = !busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                Text(stringResource(R.string.action_cancel))
-            }
-        }
     }
 
-    if (pickZone) ZoneDialog(zone, onDismiss = { pickZone = false }) { zone = it; pickZone = false }
     if (pickSchool) AlertDialog(
         onDismissRequest = { pickSchool = false },
         containerColor = p.surface,
         title = { Text(stringResource(R.string.school_choose_institution), color = p.ink) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                ZoneOption(stringResource(R.string.school_montmorency), school == "montmorency") {
-                    school = "montmorency"; portal = MONTMORENCY_PORTAL; zone = "America/Toronto"; pickSchool = false
+                SchoolOption(stringResource(R.string.school_montmorency), school == "montmorency") {
+                    school = "montmorency"; portal = MONTMORENCY_PORTAL; pickSchool = false
                 }
-                ZoneOption(stringResource(R.string.school_other_colnet), school == "custom") {
-                    school = "custom"; portal = ""; zone = ZoneId.systemDefault().id; pickSchool = false
+                SchoolOption(stringResource(R.string.school_other_colnet), school == "custom") {
+                    school = "custom"; portal = ""; pickSchool = false
                 }
-                Text(stringResource(R.string.school_supported_note), color = p.muted, style = MaterialTheme.typography.bodySmall)
             }
         },
         confirmButton = { TextButton(onClick = { pickSchool = false }) { Text(stringResource(R.string.action_cancel)) } },
@@ -428,46 +322,14 @@ private fun SignInForm(
 }
 
 @Composable
-private fun ConnectionDetails(
-    state: SchoolScheduleState,
-    onSignInAgain: () -> Unit,
-    onDisconnect: (Boolean) -> Unit,
-) {
-    val p = LocalPalette.current
-    var confirmDisconnect by rememberSaveable { mutableStateOf(false) }
-
-    if (isMontmorencyPortal(state.portalAddress)) {
-        ValueRow(stringResource(R.string.school_institution), stringResource(R.string.school_montmorency), stacked = true)
-    } else if (state.portalAddress.isNotBlank()) {
-        ValueRow(stringResource(R.string.school_portal_short), state.portalAddress, stacked = true)
-    }
-    if (state.accountName.isNotBlank()) {
-        ValueRow(stringResource(R.string.school_username), state.accountName, stacked = true)
-    }
-    state.availableCalendars.firstOrNull { it.id == state.calendarId }?.let {
-        Note(pluralStringResource(R.plurals.school_event_count, state.eventCount, state.eventCount, it.name))
-    }
-    ValueRow(stringResource(R.string.school_time_zone), zoneLabel(state.timeZone), stacked = true)
-    ClickRow(stringResource(R.string.school_sign_in_again), enabled = !state.busy, onClick = onSignInAgain)
-    ClickRow(stringResource(R.string.school_disconnect), enabled = !state.busy, color = p.danger) { confirmDisconnect = true }
-
-    if (confirmDisconnect) {
-        DisconnectDialog(state.eventCount, onDismiss = { confirmDisconnect = false }) { remove ->
-            confirmDisconnect = false
-            onDisconnect(remove)
-        }
-    }
-}
-
-@Composable
-private fun ConnectionError(state: SchoolScheduleState, onSignInAgain: (() -> Unit)? = null) {
+private fun ConnectionError(state: SchoolScheduleState, onSignInAgain: () -> Unit) {
     val error = state.error ?: return
     if (state.busy) return
     val context = LocalContext.current
     val message = stringResource(error.message()) +
         if (error == SchoolError.STORAGE) " " + stringResource(R.string.school_storage_recovery) else ""
     when {
-        error == SchoolError.SIGN_IN && onSignInAgain != null ->
+        error == SchoolError.SIGN_IN ->
             Notice(message, danger = true, action = stringResource(R.string.school_sign_in_again), onAction = onSignInAgain)
         error == SchoolError.CALENDAR_PERMISSION ->
             Notice(message, danger = true, action = stringResource(R.string.school_open_android_settings)) { context.openAppSettings() }
@@ -475,8 +337,10 @@ private fun ConnectionError(state: SchoolScheduleState, onSignInAgain: (() -> Un
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun StatusCard(state: SchoolScheduleState, onSync: () -> Unit) {
+private fun SyncSection(state: SchoolScheduleState, onSync: () -> Unit, onDisconnect: (Boolean) -> Unit) {
+    var confirmDisconnect by rememberSaveable { mutableStateOf(false) }
     val p = LocalPalette.current
     val context = LocalContext.current
     val last = state.lastSuccessMillis
@@ -506,15 +370,16 @@ private fun StatusCard(state: SchoolScheduleState, onSync: () -> Unit) {
             }
         }
     }
-    SurfaceCard {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         Text(
-            state.termName.ifBlank { stringResource(R.string.school_connected) },
+            if (isMontmorencyPortal(state.portalAddress)) stringResource(R.string.school_montmorency)
+            else state.portalAddress.ifBlank { stringResource(R.string.school_connected) },
             color = p.ink, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium,
             modifier = Modifier.semantics { heading() },
         )
         val status = when {
             state.busy -> stringResource(R.string.school_syncing)
-            last == null -> stringResource(R.string.school_never_updated)
+            last == null -> null
             else -> stringResource(
                 if (stale) R.string.school_stale else R.string.school_updated,
                 DateUtils.formatDateTime(
@@ -522,21 +387,40 @@ private fun StatusCard(state: SchoolScheduleState, onSync: () -> Unit) {
                 ),
             )
         }
-        Row(Modifier.semantics(mergeDescendants = true) { if (state.busy) liveRegion = LiveRegionMode.Polite }, verticalAlignment = Alignment.CenterVertically) {
-            if (state.busy) {
-                CircularProgressIndicator(Modifier.size(16.dp), color = p.muted, strokeWidth = 2.dp)
-                Spacer(Modifier.width(8.dp))
-            }
-            Text(status, color = if (stale && !state.busy) p.danger else p.ink, style = MaterialTheme.typography.bodyMedium)
+        if (state.accountName.isNotBlank()) {
+            Text(state.accountName, Modifier.padding(top = 2.dp), color = p.muted, style = MaterialTheme.typography.bodyMedium)
         }
-        Button(
-            onClick = onSync, enabled = !state.busy,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = p.raised, contentColor = p.ink),
-        ) { Text(stringResource(R.string.school_sync_now)) }
+        if (status != null) {
+            Row(
+                Modifier.padding(top = 2.dp).semantics(mergeDescendants = true) { if (state.busy) liveRegion = LiveRegionMode.Polite },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (state.busy) {
+                    CircularProgressIndicator(Modifier.size(16.dp), color = p.muted, strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(status, color = if (stale && !state.busy) p.danger else p.muted, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TextButton(
+                onClick = onSync, enabled = !state.busy, modifier = Modifier.heightIn(min = 48.dp),
+                contentPadding = PaddingValues(horizontal = 0.dp),
+            ) { Text(stringResource(R.string.school_sync_now)) }
+            TextButton(onClick = { confirmDisconnect = true }, enabled = !state.busy, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(stringResource(R.string.school_disconnect), color = if (state.busy) p.faint else p.danger)
+            }
+        }
+    }
+    if (confirmDisconnect) {
+        DisconnectDialog(state.hasImportedEvents, onDismiss = { confirmDisconnect = false }) { remove ->
+            confirmDisconnect = false
+            onDisconnect(remove)
+        }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PendingCard(
     changes: SchoolChangeSummary,
@@ -545,25 +429,28 @@ private fun PendingCard(
     onDiscard: () -> Unit,
 ) {
     val p = LocalPalette.current
+    val linking = changes.legacyLinks > 0
     SurfaceCard(emphasis = true) {
         Text(
-            stringResource(if (changes.linked > 0) R.string.school_link_title else R.string.school_review_title),
+            stringResource(if (linking) R.string.school_link_title else R.string.school_review_title),
             color = p.ink, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium,
             modifier = Modifier.semantics { heading(); liveRegion = LiveRegionMode.Polite },
         )
-        if (changes.linked > 0) PendingLine(pluralStringResource(R.plurals.school_pending_linked, changes.linked, changes.linked))
-        if (changes.linked > 0) PendingLine(stringResource(R.string.school_link_managed))
+        if (linking) {
+            PendingLine(pluralStringResource(R.plurals.school_pending_linked, changes.legacyLinks, changes.legacyLinks))
+            Text(stringResource(R.string.school_link_managed), color = p.muted, style = MaterialTheme.typography.bodyMedium)
+        }
         if (changes.added > 0) PendingLine(pluralStringResource(R.plurals.school_pending_added, changes.added, changes.added))
         if (changes.updated > 0) PendingLine(pluralStringResource(R.plurals.school_pending_updated, changes.updated, changes.updated))
         if (changes.removed > 0) PendingLine(pluralStringResource(R.plurals.school_pending_removed, changes.removed, changes.removed))
-        Text(stringResource(R.string.school_pending_hold), color = p.muted, style = MaterialTheme.typography.bodySmall)
-        Spacer(Modifier.height(4.dp))
-        Button(
-            onClick = onApply, enabled = !busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = p.accent, contentColor = p.onAccent),
-        ) { Text(stringResource(R.string.school_apply)) }
-        TextButton(onClick = onDiscard, enabled = !busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-            Text(stringResource(R.string.school_not_now))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = onApply, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = p.accent, contentColor = p.onAccent),
+            ) { Text(stringResource(if (linking) R.string.school_link_apply else R.string.school_apply)) }
+            TextButton(onClick = onDiscard, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(stringResource(R.string.school_not_now))
+            }
         }
     }
 }
@@ -575,11 +462,9 @@ private fun PendingLine(text: String) {
 
 @Composable
 private fun NotificationsSection(
-    prefs: SchoolNotificationPreferences,
+    enabled: Boolean,
     onEnabled: (Boolean) -> Unit,
-    onCategory: (SchoolAlert, Boolean) -> Unit,
 ) {
-    val p = LocalPalette.current
     val context = LocalContext.current
     var allowed by remember { mutableStateOf(context.notificationsAllowed()) }
     var denied by remember { mutableStateOf(false) }
@@ -597,10 +482,10 @@ private fun NotificationsSection(
             denied = true
         }
     }
-    val on = prefs.enabled && allowed
+    val on = enabled && allowed
 
     ToggleRow(
-        title = stringResource(R.string.school_allow_notifications),
+        title = stringResource(R.string.school_notify_changes),
         subtitle = null,
         checked = on,
     ) { enable ->
@@ -615,39 +500,17 @@ private fun NotificationsSection(
             onEnabled(true)
         }
     }
-    if (denied || (prefs.enabled && !allowed)) {
+    if (denied || (enabled && !allowed)) {
         Notice(
             stringResource(R.string.school_notifications_blocked),
             action = stringResource(R.string.school_open_android_settings),
             onAction = { context.openNotificationSettings() },
         )
     }
-    if (on) {
-        AlertGroups.forEach { (group, alerts) ->
-            Text(
-                stringResource(group),
-                Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 2.dp).semantics { heading() },
-                color = p.muted, style = MaterialTheme.typography.labelLarge,
-            )
-            alerts.forEach { alert ->
-                val checked = alert in prefs.categories
-                Row(
-                    Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                        .toggleable(checked, role = Role.Checkbox) { keep -> onCategory(alert, keep) }
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(stringResource(alert.label()), Modifier.weight(1f), color = p.ink, style = MaterialTheme.typography.bodyLarge)
-                    Spacer(Modifier.width(12.dp))
-                    Checkbox(checked = checked, onCheckedChange = null, colors = checkColors())
-                }
-            }
-        }
-    }
 }
 
 @Composable
-private fun DisconnectDialog(eventCount: Int, onDismiss: () -> Unit, onConfirm: (Boolean) -> Unit) {
+private fun DisconnectDialog(hasImportedEvents: Boolean, onDismiss: () -> Unit, onConfirm: (Boolean) -> Unit) {
     val p = LocalPalette.current
     var remove by rememberSaveable { mutableStateOf(false) }
     AlertDialog(
@@ -657,7 +520,7 @@ private fun DisconnectDialog(eventCount: Int, onDismiss: () -> Unit, onConfirm: 
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.school_disconnect_body), color = p.ink, style = MaterialTheme.typography.bodyMedium)
-                if (eventCount > 0) {
+                if (hasImportedEvents) {
                     Row(
                         Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(remove, role = Role.Checkbox) { remove = it },
                         verticalAlignment = Alignment.CenterVertically,
@@ -665,7 +528,7 @@ private fun DisconnectDialog(eventCount: Int, onDismiss: () -> Unit, onConfirm: 
                         Checkbox(checked = remove, onCheckedChange = null, colors = checkColors())
                         Spacer(Modifier.width(12.dp))
                         Text(
-                            pluralStringResource(R.plurals.school_disconnect_remove, eventCount, eventCount),
+                            stringResource(R.string.school_disconnect_remove),
                             Modifier.weight(1f), color = p.ink, style = MaterialTheme.typography.bodyMedium,
                         )
                     }
@@ -674,10 +537,10 @@ private fun DisconnectDialog(eventCount: Int, onDismiss: () -> Unit, onConfirm: 
             }
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(remove && eventCount > 0) }, modifier = Modifier.heightIn(min = 48.dp)) {
+            TextButton(onClick = { onConfirm(remove && hasImportedEvents) }, modifier = Modifier.heightIn(min = 48.dp)) {
                 Text(
-                    stringResource(if (remove && eventCount > 0) R.string.school_disconnect_remove_confirm else R.string.school_disconnect),
-                    color = if (remove && eventCount > 0) p.danger else p.accent,
+                    stringResource(if (remove && hasImportedEvents) R.string.school_disconnect_remove_confirm else R.string.school_disconnect),
+                    color = if (remove && hasImportedEvents) p.danger else p.accent,
                 )
             }
         },
@@ -688,59 +551,7 @@ private fun DisconnectDialog(eventCount: Int, onDismiss: () -> Unit, onConfirm: 
 }
 
 @Composable
-private fun ZoneDialog(current: String, onDismiss: () -> Unit, onPick: (String) -> Unit) {
-    val p = LocalPalette.current
-    val device = remember { ZoneId.systemDefault().id }
-    val zones = remember {
-        ZoneId.getAvailableZoneIds()
-            .filter { '/' in it && !it.startsWith("Etc/") && !it.startsWith("SystemV/") }
-            .sorted()
-            .map { it to zoneLabel(it) }
-    }
-    var query by rememberSaveable { mutableStateOf("") }
-    val shown = remember(query) {
-        val q = query.trim().lowercase()
-        if (q.isEmpty()) zones else zones.filter { it.second.lowercase().contains(q) }
-    }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = p.surface,
-        title = { Text(stringResource(R.string.school_time_zone), color = p.ink) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = query, onValueChange = { query = it }, singleLine = true,
-                    label = { Text(stringResource(R.string.school_time_zone_search)) },
-                    keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, imeAction = ImeAction.Search),
-                    colors = schoolFieldColors(),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp).selectableGroup()) {
-                    if (query.isBlank()) {
-                        item(key = "device") {
-                            ZoneOption(stringResource(R.string.school_time_zone_device, zoneLabel(device)), current == device) { onPick(device) }
-                            HorizontalDivider(color = p.line)
-                        }
-                    }
-                    if (shown.isEmpty()) {
-                        item(key = "none") {
-                            Text(stringResource(R.string.school_time_zone_none), Modifier.padding(vertical = 12.dp), color = p.muted)
-                        }
-                    }
-                    items(shown, key = { it.first }) { (id, label) ->
-                        ZoneOption(label, current == id) { onPick(id) }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.action_cancel)) }
-        },
-    )
-}
-
-@Composable
-private fun ZoneOption(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun SchoolOption(label: String, selected: Boolean, onClick: () -> Unit) {
     val p = LocalPalette.current
     Row(
         Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(selected, role = Role.RadioButton, onClick = onClick),
@@ -749,20 +560,6 @@ private fun ZoneOption(label: String, selected: Boolean, onClick: () -> Unit) {
         RadioButton(selected = selected, onClick = null, colors = RadioButtonDefaults.colors(selectedColor = p.accent, unselectedColor = p.faint))
         Spacer(Modifier.width(8.dp))
         Text(label, Modifier.weight(1f), color = p.ink, style = MaterialTheme.typography.bodyMedium)
-    }
-}
-
-@Composable
-private fun ExpandRow(title: String, expanded: Boolean, onToggle: () -> Unit) {
-    val p = LocalPalette.current
-    val state = stringResource(if (expanded) R.string.school_expanded else R.string.school_collapsed)
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(role = Role.Button, onClick = onToggle)
-            .semantics { stateDescription = state }.padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(title, Modifier.weight(1f), color = p.ink, style = MaterialTheme.typography.bodyLarge)
-        Icon(if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null, tint = p.muted)
     }
 }
 

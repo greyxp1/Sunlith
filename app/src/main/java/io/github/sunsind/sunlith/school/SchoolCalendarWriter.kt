@@ -12,35 +12,32 @@ import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.data.assertRow
 import io.github.sunsind.sunlith.data.contentValues
 import io.github.sunsind.sunlith.data.values
+import io.github.sunsind.sunlith.data.CalendarRepository
 import io.github.sunsind.sunlith.system.SettingsStore
+import io.github.sunsind.sunlith.system.visibleCalendarIds
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import io.github.sunsind.sunlith.system.hasCalendarAccess
 
+// Linked rows retain their original provider values. Only matching imports lack Sunlith's ownership marker.
+internal val SchoolJournal.legacyLinkCount: Int
+    get() = linked.count { it.revision[Events.CUSTOM_APP_URI].isNullOrBlank() }
+
 internal class SchoolCalendarWriter(private val context: Context) {
     private val resolver get() = context.contentResolver
     private fun applyBatch(operations: ArrayList<ContentProviderOperation>) { resolver.applyBatch(CalendarContract.AUTHORITY, operations) }
-    fun calendars(): List<SchoolCalendarChoice> {
-        permission()
-        val rows = query(Calendars.CONTENT_URI, arrayOf(Calendars._ID, Calendars.CALENDAR_DISPLAY_NAME, Calendars.ACCOUNT_NAME),
-            "${Calendars.CALENDAR_ACCESS_LEVEL}>=?", arrayOf(Calendars.CAL_ACCESS_CONTRIBUTOR.toString()))
-        val names = rows.groupingBy { it[Calendars.CALENDAR_DISPLAY_NAME].orEmpty() }.eachCount()
-        return rows.map {
-            val name = it[Calendars.CALENDAR_DISPLAY_NAME].orEmpty()
-            SchoolCalendarChoice(it.getValue(Calendars._ID)!!.toLong(), if (names.getValue(name) > 1) "$name (${it[Calendars.ACCOUNT_NAME].orEmpty()})" else name)
+    fun localCalendar(): Long = CalendarRepository(context).createLocalCalendar()
+
+    fun showCalendar(id: Long) {
+        val settings = SettingsStore(context)
+        val visible = settings.visibleCalendarIds(CalendarRepository(context).calendars())
+        if (id !in visible) {
+            settings.selectedCalendarIds = visible + id
+            settings.hasChosenCalendars = true
         }
     }
-    fun destination(requested: Long?): Long {
-        val choices = calendars()
-        if (requested != null) return requested.also { if (choices.none { c -> c.id == it }) throw SchoolFailure(SchoolError.CALENDAR_PERMISSION) }
-        val recent = SettingsStore(context).lastCalendar
-        if (choices.any { it.id == recent }) return recent
-        return query(Calendars.CONTENT_URI, arrayOf(Calendars._ID),
-            "${Calendars.ACCOUNT_NAME}=? AND ${Calendars.ACCOUNT_TYPE}=? AND ${Calendars.CALENDAR_ACCESS_LEVEL}>=?",
-            arrayOf("Sunlith", CalendarContract.ACCOUNT_TYPE_LOCAL, Calendars.CAL_ACCESS_CONTRIBUTOR.toString()))
-            .firstOrNull()?.get(Calendars._ID)?.toLong() ?: choices.firstOrNull()?.id ?: throw SchoolFailure(SchoolError.CALENDAR_PERMISSION)
-    }
+
     fun calendarIdentity(id: Long): Map<String, String?> {
         permission()
         val row = query(ContentUris.withAppendedId(Calendars.CONTENT_URI, id), CALENDAR_COLUMNS, null, null).singleOrNull()
@@ -155,7 +152,7 @@ internal class SchoolCalendarWriter(private val context: Context) {
         return journal
     }
     fun summary(record: SchoolRecord, plan: SchoolJournal) = SchoolChangeSummary(
-        plan.after.count { it.rowId < 0 }, plan.after.count { next -> next.rowId >= 0 && plan.linked.none { it.rowId == next.rowId } && (plan.expected ?: record.ledger).single { it.rowId == next.rowId }.revision.managedRevision() != next.revision.managedRevision() }, plan.removed.size, plan.linked.size)
+        plan.after.count { it.rowId < 0 }, plan.after.count { next -> next.rowId >= 0 && plan.linked.none { it.rowId == next.rowId } && (plan.expected ?: record.ledger).single { it.rowId == next.rowId }.revision.managedRevision() != next.revision.managedRevision() }, plan.removed.size, plan.legacyLinkCount)
 
 
     fun commitSteps(record: SchoolRecord, plan: SchoolJournal, persist: (SchoolRecord) -> Unit): List<SchoolOwned> {

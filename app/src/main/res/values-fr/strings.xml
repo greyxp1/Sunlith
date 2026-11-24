@@ -19,7 +19,6 @@
     <string name="title_calendars">Agendas</string>
     <string name="title_settings">Paramètres</string>
 
-    <string name="action_back">Retour</string>
     <string name="action_close">Fermer</string>
     <string name="action_cancel">Annuler</string>
     <string name="action_ok">OK</string>
@@ -218,7 +217,6 @@
         <item quantity="other">et %d autres remarques</item>
     </plurals>
 
-    <string name="calendars_intro">Choisissez les agendas à afficher dans Sunlith et son widget.</string>
     <string name="calendar_read_only">Lecture seule</string>
     <string name="calendar_on_device">Sur cet appareil</string>
 
@@ -253,7 +251,6 @@
     <string name="msg_export_skipped">Certains événements non pris en charge ont été ignorés. Vérifiez cette sauvegarde avant de vous y fier.</string>
     <string name="time_range">%1$s – %2$s</string>
     <string name="notification_location_separator">%1$s, %2$s</string>
-    <string name="local_calendar_name">Sunlith (sur cet appareil)</string>
     <string name="ai_intro_title">Votre agenda, connecté</string>
     <string name="ai_intro_lead">Ajoutez, modifiez et supprimez des événements du téléphone depuis votre ordinateur.</string>
     <string name="action_set_up_ai">Connecter votre ordinateur</string>

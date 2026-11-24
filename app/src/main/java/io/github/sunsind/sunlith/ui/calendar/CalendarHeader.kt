@@ -15,9 +15,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.interaction.Interaction
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -31,17 +28,19 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ArrowDownward
 import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.Checklist
+import androidx.compose.material.icons.outlined.MailOutline
 import androidx.compose.material.icons.outlined.Settings as SettingsIcon
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
-import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
@@ -60,6 +59,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -74,6 +74,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -97,6 +98,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.SettingsActivity
+import io.github.sunsind.sunlith.school.SchoolScheduleManager
+import io.github.sunsind.sunlith.school.SchoolMessagesManager
 import io.github.sunsind.sunlith.ui.Formats
 import io.github.sunsind.sunlith.ui.LocalPalette
 import io.github.sunsind.sunlith.ui.SEARCH_BAR_MARGIN
@@ -106,7 +109,7 @@ import io.github.sunsind.sunlith.ui.ViewMode
 import java.time.YearMonth
 import kotlin.math.abs
 import kotlin.math.roundToInt
-import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private fun stepLabels(vm: SunlithViewModel): Pair<Int, Int> = when (vm.viewMode) {
@@ -169,11 +172,13 @@ private fun rememberShownMonth(vm: SunlithViewModel, shift: () -> Int): androidx
 
 @Composable
 internal fun BottomBar(
-    vm: SunlithViewModel, f: Formats, onTitle: () -> Unit, onAdd: () -> Unit,
+    vm: SunlithViewModel, f: Formats, onTitle: () -> Unit,
     onStep: (Int) -> Unit, onStepView: (Int, Float) -> Unit, viewTarget: (Int) -> ViewMode,
     onDragView: (Float, Float) -> Unit, pillDrag: () -> Float, shift: () -> Int, modifier: Modifier,
 ) {
     val context = LocalContext.current
+    val school = remember(context) { SchoolScheduleManager.get(context.applicationContext) }
+    val schoolState by school.state.collectAsStateWithLifecycle()
     val morph = vm.searchMorph
     var armedAxis by remember { mutableIntStateOf(0) }
     val searchCatch by animateFloatAsState(if (armedAxis == 2) 1f else 0f, spring(stiffness = 520f))
@@ -204,7 +209,31 @@ internal fun BottomBar(
     fun search() = vm.openSearch()
     // Whether the touch in progress has turned into a swipe, so the buttons it started on never act on it.
     val swiped = remember { booleanArrayOf(false) }
-    fun tap(action: () -> Unit): () -> Unit = { if (!swiped[0]) action() }
+    var tapPending by remember { mutableStateOf(false) }
+    fun tap(action: () -> Unit): () -> Unit = {
+        if (!swiped[0] && !tapPending) {
+            tapPending = true
+            scope.launch {
+                // Let the tap ripple show before the destination covers the pill.
+                delay(80)
+                tapPending = false
+                action()
+            }
+        }
+    }
+    @Composable
+    fun ActionIcon(icon: ImageVector, label: Int, unread: Boolean = false, action: () -> Unit) {
+        val unreadMail = if (unread) stringResource(R.string.school_mail_unread) else null
+        IconButton(
+            onClick = tap(action),
+            modifier = Modifier.semantics { if (unreadMail != null) stateDescription = unreadMail },
+            interactionSource = remember { TapOnlyPress() },
+            colors = IconButtonDefaults.iconButtonColors(contentColor = p.ink),
+        ) {
+            if (unread) BadgedBox(badge = { Badge(containerColor = p.accent) }) { Icon(icon, stringResource(label)) }
+            else Icon(icon, stringResource(label))
+        }
+    }
     val searchLabel = stringResource(R.string.action_search)
     val viewLabels = listOf(stringResource(R.string.view_month), stringResource(R.string.view_week), stringResource(R.string.view_day))
     val fieldStart = { searchPullDistance(activation, activation).coerceAtMost(climb() * 0.75f) }
@@ -335,7 +364,7 @@ internal fun BottomBar(
                     withStyle(SpanStyle(color = p.muted, fontWeight = FontWeight.Normal, fontSize = 0.72.em)) { append(" " + month.year) }
                 },
                 Modifier.weight(1f, fill = false).fillMaxHeight().clip(CircleShape)
-                    .clickable(remember { TapOnlyPress() }, ripple(), onClickLabel = stringResource(R.string.action_jump_to_date), role = Role.Button, onClick = tap(onTitle))
+                    .calendarTap(p.ink, onClickLabel = stringResource(R.string.action_jump_to_date), onClick = tap(onTitle))
                     .semantics {
                         heading()
                         contentDescription = f.monthYear(month)
@@ -352,12 +381,14 @@ internal fun BottomBar(
                     }
                     .wrapContentHeight().padding(horizontal = 12.dp),
                 color = p.ink, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            IconButton(onClick = tap(vm::openTodos), interactionSource = remember { TapOnlyPress() }) { Icon(Icons.Outlined.Checklist, stringResource(R.string.todo_title), tint = p.ink) }
-            IconButton(onClick = tap { SettingsActivity.open(context) }, interactionSource = remember { TapOnlyPress() }) { Icon(Icons.Outlined.SettingsIcon, stringResource(R.string.title_settings), tint = p.ink) }
-            Box(Modifier.padding(start = 2.dp).size(46.dp).clip(CircleShape).background(p.accent).clickable(remember { TapOnlyPress() }, ripple(), role = Role.Button, onClick = tap(onAdd)),
-                contentAlignment = Alignment.Center) {
-                Icon(Icons.Outlined.Add, stringResource(R.string.action_new_event), tint = p.onAccent)
+            ActionIcon(Icons.Outlined.Checklist, R.string.todo_title, action = vm::openTodos)
+            if (schoolState.connected) {
+                val inbox by remember(context) { SchoolMessagesManager.get(context).inbox.state }.collectAsStateWithLifecycle()
+                ActionIcon(Icons.Outlined.MailOutline, R.string.school_messages_title, inbox.messages.any { it.unread }) {
+                    SettingsActivity.open(context, SettingsActivity.Page.Messages)
+                }
             }
+            ActionIcon(Icons.Outlined.SettingsIcon, R.string.title_settings) { SettingsActivity.open(context) }
         }
         if (rising) Box(Modifier.matchParentSize().graphicsLayer { alpha = searchLabelAmount() }.clearAndSetSemantics { }) {
             val query = vm.searchQuery
@@ -452,26 +483,3 @@ class SearchMorph {
 
 /** Room the floating toolbar takes above the gesture bar, which views leave free so nothing stays hidden under it. */
 internal val TOOLBAR_CLEARANCE = 80.dp
-
-/** Ripples start on release, once a press can no longer turn into a swipe. */
-private class TapOnlyPress : MutableInteractionSource {
-    private val shown = MutableInteractionSource()
-    override val interactions: Flow<Interaction> = shown.interactions
-
-    override suspend fun emit(interaction: Interaction) {
-        when (interaction) {
-            is PressInteraction.Press, is PressInteraction.Cancel -> Unit
-            is PressInteraction.Release -> {
-                shown.emit(interaction.press)
-                shown.emit(interaction)
-            }
-            else -> shown.emit(interaction)
-        }
-    }
-
-    override fun tryEmit(interaction: Interaction): Boolean = when (interaction) {
-        is PressInteraction.Press, is PressInteraction.Cancel -> true
-        is PressInteraction.Release -> shown.tryEmit(interaction.press) && shown.tryEmit(interaction)
-        else -> shown.tryEmit(interaction)
-    }
-}

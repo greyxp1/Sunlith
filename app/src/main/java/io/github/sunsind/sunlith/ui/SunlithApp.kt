@@ -1,7 +1,6 @@
 package io.github.sunsind.sunlith.ui
 
 import android.Manifest
-import android.view.View
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -41,7 +40,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,10 +48,7 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
@@ -71,7 +66,7 @@ import io.github.sunsind.sunlith.ui.event.DetailsScreen
 import io.github.sunsind.sunlith.ui.event.EventEditorScreen
 import io.github.sunsind.sunlith.ui.settings.openAppSettings
 
-private data class PageOpening(val screen: Screen, val origin: Offset)
+private data class Page(val screen: Screen, val key: String, val depth: Int)
 
 @Composable
 fun SunlithApp(vm: SunlithViewModel, footer: @Composable () -> Unit = {}) {
@@ -90,37 +85,30 @@ fun SunlithApp(vm: SunlithViewModel, footer: @Composable () -> Unit = {}) {
             else -> {
                 val top = vm.stack.lastOrNull()
                 val context = LocalContext.current
-                val view = LocalView.current
-                val pending = remember(vm) { mutableStateOf<PageOpening?>(null) }
-                val opening = pending.value
-                if (opening != null) SideEffect { if (pending.value === opening) pending.value = null }
-                val openFrom = remember(vm, view) {
-                    { source: View, origin: Offset, open: () -> Unit ->
-                        val fromCalendar = vm.stack.isEmpty() && source == view
-                        open()
-                        if (fromCalendar) vm.stack.singleOrNull()?.let { pending.value = PageOpening(it, origin) }
-                    }
-                }
                 LaunchedEffect(top) { vm.openRequestedComputerSetup() }
                 LaunchedEffect(vm.settingsPage) {
                     vm.takeSettingsPage()?.let { SettingsActivity.openRequested(context, it) }
                 }
                 BackHandler(enabled = top != null || vm.hasDayParent, onBack = vm::back)
-                CompositionLocalProvider(LocalPageOpening provides openFrom) {
-                    CalendarScreen(vm, if (top != null) Modifier.clearAndSetSemantics { } else Modifier)
-                }
-                if (top != null) {
-                    val background = Modifier.background(LocalPalette.current.background)
-                    val surface = if (top != Screen.Search && stackKeys.size > 1) background else Modifier
-                    Box(Modifier.fillMaxSize().then(surface).pointerInput(Unit) { }) {
-                        screenStates.SaveableStateProvider(stackKeys.last()) {
-                            val origin = remember { opening?.origin?.takeIf { opening.screen === top && stackKeys.size == 1 } }
-                            PageEntrance(animate = top != Screen.Search, origin = origin) {
-                                when (top) {
-                                    Screen.Search -> SearchScreen(vm)
+                val page = top?.let { Page(it, stackKeys.last(), stackKeys.size) }
+                PageTransition(
+                    page,
+                    depth = { it?.depth ?: 0 },
+                    animated = { it != null && it.screen != Screen.Search },
+                    key = { it?.key },
+                    background = { modifier ->
+                        CalendarScreen(vm, if (top == null) modifier else modifier.clearAndSetSemantics { })
+                    },
+                ) { shown, active ->
+                    if (shown != null) {
+                        val surface = if (shown.screen == Screen.Search) Modifier else Modifier.background(LocalPalette.current.background)
+                        Box(Modifier.fillMaxSize().then(surface)) {
+                            screenStates.SaveableStateProvider(shown.key) {
+                                when (val screen = shown.screen) {
+                                    Screen.Search -> SearchScreen(vm, active)
                                     Screen.Todo -> TodoScreen(vm)
-                                    Screen.Editor -> EventEditorScreen(vm)
-                                    is Screen.Details -> DetailsScreen(vm, top.event)
+                                    Screen.Editor -> EventEditorScreen(vm, active)
+                                    is Screen.Details -> DetailsScreen(vm, screen.event)
                                 }
                             }
                         }
