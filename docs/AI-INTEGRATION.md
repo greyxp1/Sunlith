@@ -14,7 +14,7 @@ This is a **one-time setup**. Afterwards, daily use is just step 1 of [Later use
 2. **On the phone:** open Settings > Computer connection, tick the calendars your computer may use (or create an on-device calendar there), then tap **Connect computer**. In the share list choose **Tailscale**, then **your computer** — the file goes directly to that computer over your private Tailscale connection, not to a Tailscale server. If Tailscale does not appear, look under “More”, or confirm file sharing (Taildrop) is enabled for your tailnet; otherwise choose a private file-saving app in the share list and move the file to your computer. The file contains an access key: do not paste its contents into chat or publish it.
 3. **On the computer:** save that file in your private user profile, outside the repository and companion folder. Example: `C:\Users\you\.config\sunlith\sunlith-pairing.json`. On macOS or Linux, use `chmod 600 /absolute/path/sunlith-pairing.json`.
 4. Back in Sunlith, tap **Start connection** if it is off (allow notifications so you can see it is active), then tap **Open calendar** — you are done on the phone.
-5. Install Node.js 22 or newer. [Download and extract the companion](https://github.com/SunSinD/Sunlith/releases/latest), then run `npm ci` in its `integrations/mcp` folder.
+5. Install Node.js 22 or newer. [Download and extract the companion](https://github.com/SunSinD/Sunlith/releases/latest). It has no dependencies to install.
 6. Configure your assistant using the examples below, then start a new assistant session.
 7. Ask it to list your Sunlith calendars and read the phone clock. Then create an event and check it in Sunlith.
 

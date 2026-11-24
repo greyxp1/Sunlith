@@ -4,12 +4,7 @@ Manage calendars on your Sunlith phone from your computer over WiFi or Tailscale
 
 The companion uses standard input/output. Sunlith runs a private HTTPS server while Computer connection is on. Pairing checks the phone certificate and grants access to calendars you select. Stop pauses access. Unpair revokes it.
 
-Requires Node.js 22 or later. See [setup and client configurations](../../docs/AI-INTEGRATION.md).
-
-```powershell
-npm ci
-npm run check
-```
+Requires Node.js 22 or later. It has no dependencies to install. See [setup and client configurations](../../docs/AI-INTEGRATION.md).
 
 It provides `list_calendars`, `list_events`, `get_event`, `create_event`, `update_event`, `delete_event`, `get_current_time` and `import_calendar_file` for imports you request from a private ICS file. IDs are Android calendar and event IDs.
 

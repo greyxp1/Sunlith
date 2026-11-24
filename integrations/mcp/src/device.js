@@ -6,15 +6,10 @@ import { readFile, realpath, stat } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isIP } from 'node:net';
-import { z } from 'zod';
 
 const REQUEST_LIMIT = 512 * 1024;
 const RESPONSE_LIMIT = 2 * 1024 * 1024;
 const repo = fileURLToPath(new URL('../../../', import.meta.url));
-const configSchema = z.object({
-  version: z.literal(1), baseUrl: z.string().max(100),
-  certificateSha256: z.string().regex(/^[a-f0-9]{64}$/), token: z.string().regex(/^[A-Za-z0-9_-]{43}$/)
-}).strict();
 const messages = {
   400: 'Sunlith rejected the request. Check event times, recurrence and supported fields.',
   401: 'Sunlith pairing is no longer authorized. Pair the phone again.',
@@ -78,9 +73,11 @@ async function privateFile(path, maximum, label) {
 export async function loadDeviceConfig(path) {
   const source = await privateFile(path, 4096, 'Device configuration');
   let parsed;
-  try { parsed = configSchema.parse(JSON.parse(source)); }
-  catch { throw new Error('Invalid device configuration. Pair the phone again.'); }
-  validateDeviceUrl(parsed.baseUrl);
+  try { parsed = JSON.parse(source); } catch {}
+  const { version, baseUrl, certificateSha256, token } = parsed ?? {};
+  if (Object.keys(parsed ?? {}).length !== 4 || version !== 1 || typeof baseUrl !== 'string' || baseUrl.length > 100 ||
+      !/^[a-f0-9]{64}$/.test(certificateSha256) || !/^[A-Za-z0-9_-]{43}$/.test(token)) throw new Error('Invalid device configuration. Pair the phone again.');
+  validateDeviceUrl(baseUrl);
   return parsed;
 }
 
@@ -152,7 +149,9 @@ export async function callDevice(config, tool, args) {
             const knownCode = typeof payload?.error?.code === 'string' && Object.hasOwn(codeMessages, payload.error.code) ? payload.error.code : null;
             const reason = payload?.error?.reason;
             const blockedMessage = knownCode && typeof reason === 'string' && Object.hasOwn(blockedReasons, reason) ? blockedReasons[reason] : null;
-            finish(new Error(blockedMessage ?? (knownCode ? codeMessages[knownCode] : messages[response.statusCode] ?? 'Sunlith refused the request. Redirects are not followed.')));
+            // The phone explains rejected arguments precisely, so its own message is clearer than a generic one.
+            const detail = knownCode === 'bad_request' && typeof payload.error.message === 'string' ? payload.error.message.slice(0, 500) : null;
+            finish(new Error(blockedMessage ?? detail ?? (knownCode ? codeMessages[knownCode] : messages[response.statusCode] ?? 'Sunlith refused the request. Redirects are not followed.')));
             return;
           }
           if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !Object.hasOwn(payload, 'result') || Object.hasOwn(payload, 'error') ||

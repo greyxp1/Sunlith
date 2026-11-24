@@ -13,7 +13,7 @@ shutil.copy2(root / 'app/build/outputs/apk/release/app-release.apk', apk)
 archive = dist / f'Sunlith-companion-v{version}.zip'
 prefix = f'Sunlith-companion-v{version}/'
 files = ['LICENSE', 'NOTICE', 'SECURITY.md', 'docs/AI-INTEGRATION.md',
-         'integrations/mcp/package.json', 'integrations/mcp/package-lock.json', 'integrations/mcp/README.md']
+         'integrations/mcp/package.json', 'integrations/mcp/README.md']
 files += [p.relative_to(root).as_posix() for p in sorted((root / 'integrations/mcp/src').glob('*.js'))]
 with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as z:
     for f in files: z.write(root / f, prefix + f)
