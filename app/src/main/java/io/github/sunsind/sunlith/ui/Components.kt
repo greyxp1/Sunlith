@@ -4,35 +4,35 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -43,7 +43,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.sunsind.sunlith.R
+import io.github.sunsind.sunlith.ui.event.switchColors
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScreenTopBar(
     title: String,
@@ -53,17 +55,15 @@ fun ScreenTopBar(
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     val p = LocalPalette.current
-    Row(
-        Modifier.fillMaxWidth().background(p.background).statusBarsPadding().heightIn(min = 64.dp).padding(horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(onClick = onNavigate) { Icon(navigationIcon, navigationLabel, tint = p.ink) }
-        Text(
-            title, Modifier.weight(1f).padding(horizontal = 8.dp).semantics { heading() },
-            style = MaterialTheme.typography.titleLarge, color = p.ink, maxLines = 2, overflow = TextOverflow.Ellipsis,
-        )
-        actions()
-    }
+    TopAppBar(
+        title = {
+            if (title.isNotEmpty()) Text(title, Modifier.semantics { heading() }, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        },
+        navigationIcon = { IconButton(onClick = onNavigate) { Icon(navigationIcon, navigationLabel) } },
+        actions = actions,
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = p.background,
+            navigationIconContentColor = p.ink, titleContentColor = p.ink, actionIconContentColor = p.ink),
+    )
 }
 
 /** A rounded surface for grouped content. [modifier] sets the outer spacing. */
@@ -128,7 +128,10 @@ private fun RowText(title: String, subtitle: String?, modifier: Modifier, color:
 }
 
 @Composable
-fun ClickRow(title: String, subtitle: String? = null, enabled: Boolean = true, color: Color? = null, onClick: () -> Unit) {
+fun ClickRow(
+    title: String, subtitle: String? = null, enabled: Boolean = true, color: Color? = null,
+    icon: ImageVector? = null, onClick: () -> Unit,
+) {
     val p = LocalPalette.current
     Row(
         Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(enabled = enabled, role = Role.Button, onClick = onClick)
@@ -136,7 +139,7 @@ fun ClickRow(title: String, subtitle: String? = null, enabled: Boolean = true, c
         verticalAlignment = Alignment.CenterVertically,
     ) {
         RowText(title, subtitle, Modifier.weight(1f), if (enabled) color ?: p.ink else p.faint)
-        Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, Modifier.padding(start = 12.dp).size(20.dp), tint = p.muted)
+        if (icon != null) Icon(icon, null, Modifier.padding(start = 12.dp).size(20.dp), tint = p.muted)
     }
 }
 
@@ -175,9 +178,8 @@ fun SunMark(modifier: Modifier = Modifier) {
 @Composable
 fun SectionTitle(text: String, modifier: Modifier = Modifier) {
     val p = LocalPalette.current
-    val locale = LocalConfiguration.current.locales[0]
     Text(
-        text.uppercase(locale), modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 8.dp).semantics { heading() },
-        color = p.muted, style = SectionLabel,
+        text, modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 8.dp).semantics { heading() },
+        color = p.accent, style = MaterialTheme.typography.titleSmall,
     )
 }

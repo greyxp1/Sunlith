@@ -1,5 +1,4 @@
-import { request } from 'node:https';
-import { Agent } from 'node:https';
+import { Agent, request } from 'node:https';
 import { connect } from 'node:tls';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFile, realpath, stat } from 'node:fs/promises';
@@ -10,32 +9,7 @@ import { isIP } from 'node:net';
 const REQUEST_LIMIT = 512 * 1024;
 const RESPONSE_LIMIT = 2 * 1024 * 1024;
 const repo = fileURLToPath(new URL('../../../', import.meta.url));
-const messages = {
-  400: 'Sunlith rejected the request. Check event times, recurrence and supported fields.',
-  401: 'Sunlith pairing is no longer authorized. Pair the phone again.',
-  403: 'This calendar is not allowed or is read-only. Check access on the phone.',
-  404: 'The requested phone calendar or event was not found.',
-  409: 'The event changed, the operation ID conflicts, or series confirmation is required. Read it again and confirm the whole series when applicable.',
-  413: 'The request or result is too large. Use a smaller file or date range.',
-  422: 'Sunlith cannot safely change this event. Check for guests, recurrence exceptions, or required whole-series confirmation.',
-  429: 'Too many phone requests. Wait briefly before trying again.',
-  500: 'The phone could not complete this request. Check Sunlith before trying again.',
-  503: 'Sunlith is temporarily unavailable. Open the phone app and try again.'
-};
-const codeMessages = {
-  bad_request: messages[400], unauthorized: messages[401], calendar_not_allowed: messages[403], not_found: messages[404],
-  revision_mismatch: 'The event changed. Read its latest etag before trying again.',
-  operation_conflict: 'This operationId was already used with different details. Reuse the original details or choose a new operationId for a new event.',
-  blocked: messages[422], rate_limited: messages[429], too_large: messages[413],
-  permission_missing: 'Calendar access is missing on the phone. Allow calendar access in Sunlith and try again.', internal: messages[500]
-};
-const blockedReasons = {
-  school_managed: 'This event is updated by the school portal. Disconnect the school schedule on the phone before editing it.',
-  series_scope_required: 'This is a repeating event. Confirm the whole series and use seriesScope:"series".',
-  recurrence_exception: 'This series has exceptions. Sunlith cannot safely change it through this tool.',
-  guests: 'This event has guests. Sunlith cannot safely change meetings with invitations through this tool.',
-  invalid_provider_data: 'This event has invalid stored calendar data. Review it on the phone before editing.'
-};
+const tooLarge = 'The request or result is too large. Use a smaller file or date range.';
 
 function outsideRepository(path, root) {
   const part = relative(root, path);
@@ -85,12 +59,12 @@ export async function callDevice(config, tool, args) {
   const url = new URL(config.baseUrl);
   if (tool === 'import_calendar_file') {
     if (extname(args.filePath).toLowerCase() !== '.ics') throw new Error('Choose an ICS file.');
-    args = { calendarId: args.calendarId, ics: await privateFile(args.filePath, 256 * 1024, 'Calendar file'), confirm: true };
+    args = { calendarId: args.calendarId, ics: await privateFile(args.filePath, 256 * 1024, 'Calendar file'), confirm: args.confirm };
     tool = 'import_calendar';
   }
   const timeoutMs = tool === 'import_calendar' ? 180_000 : 10_000;
   const body = Buffer.from(JSON.stringify({ tool, arguments: args }), 'utf8');
-  if (body.length > REQUEST_LIMIT) throw new Error(messages[413]);
+  if (body.length > REQUEST_LIMIT) throw new Error(tooLarge);
   const expectedPin = Buffer.from(config.certificateSha256, 'hex');
   const agent = new Agent({ keepAlive: false, maxSockets: 1 });
   let connectingSocket;
@@ -133,10 +107,10 @@ export async function callDevice(config, tool, args) {
         headers: { authorization: `Bearer ${config.token}`, 'content-type': 'application/json; charset=utf-8', 'content-length': body.length, accept: 'application/json' }, maxHeaderSize: 16 * 1024 }, response => {
         let size = 0;
         const chunks = [];
-        if (Number(response.headers['content-length']) > RESPONSE_LIMIT) { finish(new Error(messages[413])); return; }
+        if (Number(response.headers['content-length']) > RESPONSE_LIMIT) { finish(new Error(tooLarge)); return; }
         response.on('data', chunk => {
           size += chunk.length;
-          if (size > RESPONSE_LIMIT) { finish(new Error(messages[413])); return; }
+          if (size > RESPONSE_LIMIT) { finish(new Error(tooLarge)); return; }
           chunks.push(chunk);
         });
         response.once('error', () => finish(new Error('Sunlith phone response was interrupted.')));
@@ -144,14 +118,11 @@ export async function callDevice(config, tool, args) {
           if (settled) return;
           let payload;
           try { payload = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks))); }
-          catch { finish(new Error(messages[response.statusCode] ?? 'Sunlith returned an invalid response.')); return; }
+          catch { finish(new Error(response.statusCode === 413 ? tooLarge : 'Sunlith returned an invalid response.')); return; }
           if (response.statusCode !== 200) {
-            const knownCode = typeof payload?.error?.code === 'string' && Object.hasOwn(codeMessages, payload.error.code) ? payload.error.code : null;
-            const reason = payload?.error?.reason;
-            const blockedMessage = knownCode && typeof reason === 'string' && Object.hasOwn(blockedReasons, reason) ? blockedReasons[reason] : null;
-            // The phone explains rejected arguments precisely, so its own message is clearer than a generic one.
-            const detail = knownCode === 'bad_request' && typeof payload.error.message === 'string' ? payload.error.message.slice(0, 500) : null;
-            finish(new Error(blockedMessage ?? detail ?? (knownCode ? codeMessages[knownCode] : messages[response.statusCode] ?? 'Sunlith refused the request. Redirects are not followed.')));
+            const message = payload?.error?.message;
+            const fallback = response.statusCode === 413 ? tooLarge : 'Sunlith refused the request. Redirects are not followed.';
+            finish(new Error(typeof message === 'string' && message ? message.slice(0, 500) : fallback));
             return;
           }
           if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !Object.hasOwn(payload, 'result') || Object.hasOwn(payload, 'error') ||

@@ -10,16 +10,15 @@ import android.net.Uri
 import android.os.Build
 import android.widget.RemoteViews
 import io.github.sunsind.sunlith.MainActivity
+import io.github.sunsind.sunlith.calendarTaskIntent
 import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.system.AppRefresh
-import io.github.sunsind.sunlith.system.SettingsStore
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 
 class AgendaWidgetReceiver : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        update(context, manager, ids)
         val pending = goAsync()
         AppRefresh.refresh(context) { pending.finish() }
     }
@@ -43,14 +42,14 @@ class AgendaWidgetReceiver : AppWidgetProvider() {
                 val views = RemoteViews(context.packageName, R.layout.widget_agenda)
                 views.setTextViewText(R.id.widget_header, today.dayOfWeek.getDisplayName(TextStyle.FULL, locale).uppercase(locale))
                 views.setTextViewText(R.id.widget_date, today.format(DateTimeFormatter.ofPattern(datePattern, locale)))
-                views.setInt(R.id.widget_background, "setImageAlpha", SettingsStore(context).widgetOpacity * 255 / 100)
                 val service = Intent(context, AgendaWidgetService::class.java).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
                 service.data = android.net.Uri.parse(service.toUri(Intent.URI_INTENT_SCHEME))
                 views.setRemoteAdapter(R.id.widget_events, service)
                 views.setEmptyView(R.id.widget_events, R.id.widget_empty)
-                val open = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                views.setOnClickPendingIntent(R.id.widget_heading, activityPending(context, id, open, "header"))
-                views.setOnClickPendingIntent(R.id.widget_empty, activityPending(context, id, open, "empty"))
+                val open = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                val bringForward = PendingIntent.getActivity(context, id, calendarTaskIntent(context), PendingIntent.FLAG_IMMUTABLE)
+                views.setOnClickPendingIntent(R.id.widget_heading, bringForward)
+                views.setOnClickPendingIntent(R.id.widget_empty, bringForward)
                 views.setOnClickPendingIntent(R.id.widget_add, activityPending(context, id, Intent(open).putExtra("create_event", true), "add"))
                 val templateFlags = PendingIntent.FLAG_UPDATE_CURRENT or if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
                 views.setPendingIntentTemplate(R.id.widget_events, activityPending(context, id, open, "event", templateFlags))

@@ -9,10 +9,7 @@ import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.provider.CalendarContract
-import androidx.core.content.ContextCompat
-import io.github.sunsind.sunlith.data.DeviceCalendar
 import io.github.sunsind.sunlith.widget.AgendaWidgetReceiver
 import io.github.sunsind.sunlith.school.SchoolScheduleManager
 import java.util.concurrent.Executors
@@ -65,7 +62,7 @@ class CalendarChangeJobService : JobService() {
         private const val JOB_ID = 4031
         private const val MAINTENANCE_ID = 4033
         fun schedule(context: Context, replace: Boolean = false) {
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) return
+            if (!context.hasPermission(Manifest.permission.READ_CALENDAR)) return
             val scheduler = context.getSystemService(JobScheduler::class.java)
             if (scheduler.getPendingJob(MAINTENANCE_ID) == null) {
                 scheduler.schedule(JobInfo.Builder(MAINTENANCE_ID, ComponentName(context, CalendarChangeJobService::class.java))
@@ -88,8 +85,3 @@ class CalendarRefreshReceiver : BroadcastReceiver() {
         AppRefresh.refresh(context) { pending.finish() }
     }
 }
-
-/** Calendars the app shows: the chosen ones that still exist, or before any choice the calendars the provider marks visible. */
-internal fun SettingsStore.visibleCalendarIds(calendars: List<DeviceCalendar>): Set<Long> =
-    if (hasChosenCalendars) selectedCalendarIds.intersect(calendars.mapTo(mutableSetOf()) { it.id })
-    else calendars.filter { it.visible }.mapTo(mutableSetOf()) { it.id }

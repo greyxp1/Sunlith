@@ -1,6 +1,0 @@
-<resources>
-    <plurals name="calendar_more_events">
-        <item quantity="one">%d more event</item>
-        <item quantity="other">%d more events</item>
-    </plurals>
-</resources>

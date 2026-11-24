@@ -19,22 +19,30 @@ object LauncherIcons {
     enum class Style(val key: String, val alias: String, val icon: Int, val label: Int) {
         Light("light", "LauncherLight", R.mipmap.ic_launcher, R.string.launcher_icon_light),
         Dark("dark", "LauncherDark", R.mipmap.ic_launcher_dark, R.string.launcher_icon_dark),
-        Neutral("neutral", "LauncherNeutral", R.mipmap.ic_launcher_neutral, R.string.launcher_icon_neutral),
     }
 
     /** Matches android:enabled in the manifest: only the Light alias is enabled on install and upgrade. */
     val Default = Style.Light
-    val availableStyles = listOf(Style.Light, Style.Dark)
     private const val KEY = "launcher_icon"
     private const val FLAGS = PackageManager.DONT_KILL_APP
+    /**
+     * A retired style's alias. It stays in the manifest, with the default icon, so an install that still has it enabled
+     * keeps a launcher entry until [reconcile] switches it off.
+     */
+    private const val RETIRED = "LauncherNeutral"
 
-    fun component(context: Context, style: Style) =
-        ComponentName(context.packageName, MainActivity::class.java.name.substringBeforeLast('.') + "." + style.alias)
+    fun component(context: Context, style: Style) = component(context, style.alias)
+
+    private fun component(context: Context, alias: String) =
+        ComponentName(context.packageName, MainActivity::class.java.name.substringBeforeLast('.') + "." + alias)
+
+    private fun retiredEnabled(context: Context) =
+        context.packageManager.getComponentEnabledSetting(component(context, RETIRED)) == PackageManager.COMPONENT_ENABLED_STATE_ENABLED
 
     /** The style the user chose. Unknown or missing values fall back to the manifest default. */
     fun saved(context: Context): Style {
         val key = prefs(context).getString(KEY, null)
-        return availableStyles.firstOrNull { it.key == key } ?: Default
+        return Style.entries.firstOrNull { it.key == key } ?: Default
     }
 
     /** Aliases the launcher can currently see. Healthy state is exactly one. */
@@ -55,7 +63,6 @@ object LauncherIcons {
      */
     @Synchronized
     fun select(context: Context, style: Style): Boolean {
-        if (style == Style.Neutral) return select(context, Default)
         val prefs = prefs(context)
         val previous = prefs.getString(KEY, null)
         if (!prefs.edit().putString(KEY, style.key).commit()) return false
@@ -96,7 +103,7 @@ object LauncherIcons {
     @Synchronized
     fun reconcile(context: Context) {
         val wanted = saved(context)
-        if (enabled(context) == listOf(wanted)) return
+        if (enabled(context) == listOf(wanted) && !retiredEnabled(context)) return
         runCatching { switchTo(context, wanted) }.onFailure {
             if (enabled(context).isEmpty()) runCatching { switchTo(context, Default) }
         }
@@ -105,7 +112,7 @@ object LauncherIcons {
     private fun switchTo(context: Context, style: Style) {
         val pm = context.packageManager
         val target = component(context, style)
-        val others = Style.entries.filter { it != style }.map { component(context, it) }
+        val others = Style.entries.filter { it != style }.map { component(context, it) } + component(context, RETIRED)
         if (Build.VERSION.SDK_INT >= 33) {
             pm.setComponentEnabledSettings(
                 listOf(PackageManager.ComponentEnabledSetting(target, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, FLAGS)) +
@@ -122,7 +129,7 @@ object LauncherIcons {
      */
     private fun switchSequentially(context: Context, style: Style) {
         val pm = context.packageManager
-        val before = Style.entries.associate { component(context, it) to pm.getComponentEnabledSetting(component(context, it)) }
+        val before = (Style.entries.map { component(context, it) } + component(context, RETIRED)).associateWith { pm.getComponentEnabledSetting(it) }
         val target = component(context, style)
         try {
             pm.setComponentEnabledSetting(target, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, FLAGS)

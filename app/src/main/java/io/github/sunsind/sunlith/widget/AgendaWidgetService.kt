@@ -3,18 +3,16 @@ package io.github.sunsind.sunlith.widget
 import android.Manifest
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.Color
 import android.view.View
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
-import androidx.core.content.ContextCompat
 import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.data.CalendarEvent
 import io.github.sunsind.sunlith.data.CalendarRepository
 import io.github.sunsind.sunlith.system.SettingsStore
 import io.github.sunsind.sunlith.system.visibleCalendarIds
-import io.github.sunsind.sunlith.ui.indexByDay
+import io.github.sunsind.sunlith.data.indexByDay
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -23,6 +21,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import io.github.sunsind.sunlith.system.hasPermission
 
 class AgendaWidgetService : RemoteViewsService() {
     override fun onGetViewFactory(intent: Intent): RemoteViewsFactory = AgendaFactory(applicationContext)
@@ -54,7 +53,7 @@ private class AgendaFactory(private val context: Context) : RemoteViewsService.R
         val base = WidgetSnapshot(today = today, zone = zone,
             locale = context.resources.configuration.locales[0], showCalendarName = settings.widgetShowCalendarName)
         snapshot = try {
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) {
+            if (!context.hasPermission(Manifest.permission.READ_CALENDAR)) {
                 base.copy(rows = listOf(WidgetRow.Message(R.string.widget_calendar_access)))
             } else {
                 val repo = CalendarRepository(context)

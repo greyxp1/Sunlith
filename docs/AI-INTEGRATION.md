@@ -13,14 +13,14 @@ This is a **one-time setup**. Afterwards, daily use is just step 1 of [Later use
 1. **Connect both devices.** Install Tailscale on **both** your phone and your computer, sign in to the same account on both, and turn Tailscale on. No Tailscale? Put both on the same Wi-Fi instead. Tailscale only carries the traffic; it is not what authorizes calendar access (see below), so Sunlith still pairs explicitly.
 2. **On the phone:** open Settings > Computer connection, tick the calendars your computer may use (or create an on-device calendar there), then tap **Connect computer**. In the share list choose **Tailscale**, then **your computer** — the file goes directly to that computer over your private Tailscale connection, not to a Tailscale server. If Tailscale does not appear, look under “More”, or confirm file sharing (Taildrop) is enabled for your tailnet; otherwise choose a private file-saving app in the share list and move the file to your computer. The file contains an access key: do not paste its contents into chat or publish it.
 3. **On the computer:** save that file in your private user profile, outside the repository and companion folder. Example: `C:\Users\you\.config\sunlith\sunlith-pairing.json`. On macOS or Linux, use `chmod 600 /absolute/path/sunlith-pairing.json`.
-4. Back in Sunlith, tap **Start connection** if it is off (allow notifications so you can see it is active), then tap **Open calendar** — you are done on the phone.
+4. Back in Sunlith, turn on **Allow computer access** (allow notifications so you can see it is active), then return to your calendar.
 5. Install Node.js 22 or newer. [Download and extract the companion](https://github.com/SunSinD/Sunlith/releases/latest). It has no dependencies to install.
 6. Configure your assistant using the examples below, then start a new assistant session.
 7. Ask it to list your Sunlith calendars and read the phone clock. Then create an event and check it in Sunlith.
 
 ### Later use
 
-1. Make sure Tailscale is on (or you are on the same Wi-Fi), and Sunlith's computer connection is on.
+1. Make sure Tailscale is on (or you are on the same Wi-Fi), then turn on **Allow computer access** in Sunlith.
 2. Ask your assistant as usual. That is all.
 
 Pair again only if you tap **Unpair computer**, want to change the shared calendars, or the phone address in the file no longer works (a Tailscale address normally stays stable; a Wi-Fi address can change — then pair again or update only `baseUrl` in the private file).
@@ -55,9 +55,9 @@ For clients using `mcpServers` JSON, including Cursor and Gemini CLI:
 
 Replace both paths with your private pairing file and extracted companion location. Other MCP clients take the same command, arguments and `SUNLITH_DEVICE_CONFIG` in their own configuration format.
 
-The companion verifies the phone certificate before sending the pairing key. It can access only calendars chosen during pairing. Being on the same Tailscale network proves a device may open a network connection; it does not prove Sunlith may read or change your calendars — that one-time authorization is the pairing file, checked over HTTPS with the pinned phone certificate, and it stays required. Display filters are separate from computer access. Pairing does not change which calendars appear in the app or widget; choose those under Settings > Calendars. Stop connection pauses access. Unpair computer revokes the file.
+The companion verifies the phone certificate before sending the pairing key. It can access only calendars chosen during pairing. Being on the same Tailscale network proves a device may open a network connection; it does not prove Sunlith may read or change your calendars — that one-time authorization is the pairing file, checked over HTTPS with the pinned phone certificate, and it stays required. Display filters are separate from computer access. Pairing does not change which calendars appear in the app or widget; choose those under Settings > Calendars. Turning off the connection pauses access. Unpair computer revokes the file.
 
-In Settings > Computer connection, Activity history shows the latest 100 successful computer changes, including edits, deletions and import totals. Connection details shows pairing information and the last successful request. A running connection means the phone is listening; it does not prove the computer is currently connected. History starts after installing the update that adds it, and clearing it leaves events and pairing unchanged.
+In Settings > Computer connection, Activity history shows the latest 100 successful computer changes, including edits, deletions and import totals. Connection details shows pairing information and the last successful request. When Allow computer access is on, the phone accepts requests. Your computer may still be disconnected. History starts after installing the update that adds it, and clearing it leaves events and pairing unchanged.
 
 Keep the connection on while using the computer tools. Battery restrictions can pause or stop it with the screen off; allow background battery use for Sunlith if needed. It does not start automatically after reboot or force-stop. No public relay, router port forwarding, browser calendar tab or Google sign-in is needed.
 

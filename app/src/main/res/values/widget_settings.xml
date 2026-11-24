@@ -5,4 +5,12 @@
     <string name="widget_calendar_access">Open Sunlith to allow calendar access.</string>
     <string name="widget_choose_calendars">Open Sunlith to choose calendars.</string>
     <string name="widget_calendar_unavailable">Calendar unavailable. Open Sunlith to retry.</string>
+    <string name="widget_settings_title">Widget</string>
+    <string name="widget_days">Days to show</string>
+    <plurals name="widget_days_value">
+        <item quantity="one">%d day</item>
+        <item quantity="other">%d days</item>
+    </plurals>
+    <string name="widget_empty_days">Show empty days</string>
+    <string name="widget_calendar_name">Show calendar names</string>
 </resources>

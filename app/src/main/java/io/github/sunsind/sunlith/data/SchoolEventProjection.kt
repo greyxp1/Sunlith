@@ -14,20 +14,24 @@ fun projectSchoolEvents(events: List<CalendarEvent>, zone: ZoneId): List<Calenda
     fun identity(event: CalendarEvent): List<Any>? = event.school?.takeIf {
         it.classKey.isNotBlank() && it.course.isNotBlank() && it.group.isNotBlank()
     }?.let { listOf(event.calendarId, it.classKey, it.course, it.group, day(event)) }
-    fun sameIdentity(first: CalendarEvent, second: CalendarEvent): Boolean =
-        identity(first) != null && identity(first) == identity(second) &&
-            (first.allDay || second.allDay || first.timeZone == second.timeZone)
-    fun absenceMatches(notice: CalendarEvent, event: CalendarEvent): Boolean = sameIdentity(notice, event) &&
-        (notice.school!!.classKind.isBlank() || notice.school.classKind == event.school!!.classKind)
     fun classEvent(event: CalendarEvent) = event.school?.kind == "01" && !event.allDay && event.endMillis > event.startMillis
     fun adjacent(first: CalendarEvent, second: CalendarEvent) = second.startMillis >= first.endMillis &&
         second.startMillis - first.endMillis <= SCHOOL_CHANGEOVER_MILLIS
+    // A period in another room is its own block, such as the shower time booked after a gym class. A period whose room
+    // is unknown, like a canceled one left out of the agenda, still joins its neighbours.
+    fun samePlace(first: CalendarEvent, second: CalendarEvent) =
+        first.location.isBlank() || second.location.isBlank() || first.location.trim() == second.location.trim()
 
     val classes = events.filter(::classEvent).toMutableList()
+    val byIdentity = classes.indices.groupBy { identity(classes[it]) }
+    fun matching(notice: CalendarEvent): List<Int> = identity(notice)?.let { byIdentity[it] }.orEmpty()
+        .filter { notice.allDay || notice.timeZone == classes[it].timeZone }
     val remaining = mutableListOf<CalendarEvent>()
     val notices = events.filter { it.school?.kind == "absence" }
     notices.forEach { notice ->
-        val matching = classes.indices.filter { absenceMatches(notice, classes[it]) }
+        val matching = matching(notice).filter {
+            notice.school!!.classKind.isBlank() || notice.school.classKind == classes[it].school!!.classKind
+        }
         val overlapping = matching.filter { notice.allDay ||
             (notice.startMillis < classes[it].endMillis && notice.endMillis > classes[it].startMillis) }
         val ordered = overlapping.sortedBy { classes[it].startMillis }
@@ -49,7 +53,7 @@ fun projectSchoolEvents(events: List<CalendarEvent>, zone: ZoneId): List<Calenda
     val candidates = classes.toMutableList()
     val unattached = mutableListOf<CalendarEvent>()
     remaining.forEach { notice ->
-        val matching = classes.filter { sameIdentity(notice, it) }
+        val matching = matching(notice).map { classes[it] }
         val kinds = matching.map { it.school!!.classKind }.distinct()
         val kind = notice.school!!.classKind
         if (!notice.allDay && notice.endMillis > notice.startMillis && kinds.size == 1 &&
@@ -67,7 +71,7 @@ fun projectSchoolEvents(events: List<CalendarEvent>, zone: ZoneId): List<Calenda
         val runs = mutableListOf<MutableList<CalendarEvent>>()
         rows.sortedWith(compareBy<CalendarEvent> { it.startMillis }.thenBy { it.endMillis }.thenBy { it.id }).forEach { event ->
             val previous = runs.lastOrNull()?.lastOrNull()
-            if (previous != null && adjacent(previous, event) && identity(event) != null) runs.last() += event
+            if (previous != null && adjacent(previous, event) && identity(event) != null && samePlace(previous, event)) runs.last() += event
             else runs += mutableListOf(event)
         }
         runs.forEach { run ->

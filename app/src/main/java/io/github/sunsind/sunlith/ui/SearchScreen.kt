@@ -1,56 +1,94 @@
 package io.github.sunsind.sunlith.ui
 
-import androidx.activity.compose.BackHandler
+import android.os.Build
+import android.view.HapticFeedbackConstants
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.data.CalendarEvent
+import io.github.sunsind.sunlith.data.key
+import io.github.sunsind.sunlith.data.span
+import io.github.sunsind.sunlith.ui.calendar.CalendarEventCard
+import io.github.sunsind.sunlith.ui.calendar.PillGestureLatch
+import io.github.sunsind.sunlith.ui.calendar.canceled
+import io.github.sunsind.sunlith.ui.calendar.searchPullDistance
 import java.time.LocalDate
 import java.time.ZoneId
+import kotlinx.coroutines.launch
 
 @Composable
 fun SearchScreen(vm: SunlithViewModel) {
     val p = LocalPalette.current
     val f = rememberFormats()
     val focus = remember { FocusRequester() }
+    val searchLabel = stringResource(R.string.search_hint)
     val keyboard = LocalSoftwareKeyboardController.current
-    BackHandler { vm.back() }
-    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
     val zone = ZoneId.systemDefault()
     val today = LocalDate.now()
     val groups = remember(vm.searchResults) {
@@ -59,34 +97,142 @@ fun SearchScreen(vm: SunlithViewModel) {
         upcoming to past
     }
 
+    // Pulling down on the bar, or past the top of the results, hands the bar back to the toolbar and follows the
+    // finger down. Let go far enough or fast enough and search closes, otherwise it glides back open.
+    val morph = vm.searchMorph
+    val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
+    val hostView = LocalView.current
+    val activation = with(LocalDensity.current) { 76.dp.toPx() }
+    val retreat = with(LocalDensity.current) { 26.dp.toPx() }
+    val catchDistance = with(LocalDensity.current) { 24.dp.toPx() }
+    var latched by remember { mutableStateOf(false) }
+    val catchProgress by animateFloatAsState(if (latched) 1f else 0f, spring(stiffness = 520f))
+    val pull = remember(vm, keyboard, haptics, hostView, activation, retreat) {
+        object : NestedScrollConnection {
+            var pulled = 0f
+            private var latch = PillGestureLatch(activation, retreat, fixedThreshold = true)
+            private var armed = 0
+            private var dragging = false
+            // Where the bar was when the pull began, which is partway up while it is still gliding into place.
+            var from = 1f
+            val tracker = VelocityTracker()
+            fun drag(delta: Float, time: Long): Float {
+                val before = pulled
+                pulled = (pulled + delta).coerceAtLeast(0f)
+                if (!dragging && pulled > 0f) {
+                    dragging = true
+                    keyboard?.hide()
+                    from = morph.progress
+                }
+                tracker.addPosition(time, Offset(0f, pulled))
+                val next = latch.update(pulled) { it > 0 }
+                if (next != armed) {
+                    if (next > 0) haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
+                    else if (Build.VERSION.SDK_INT >= 34) hostView.performHapticFeedback(HapticFeedbackConstants.GESTURE_THRESHOLD_DEACTIVATE)
+                }
+                armed = next
+                latched = next > 0
+                if (dragging) morph.pullTo(from - searchPullDistance(pulled, activation) / morph.climb) {
+                    -catchDistance * catchProgress / morph.climb
+                }
+                return pulled - before
+            }
+            fun release(velocity: Float = tracker.calculateVelocity().y, canceled: Boolean = false) {
+                if (dragging) {
+                    morph.freezePull()
+                    val flick = velocity > 500f && pulled >= activation * 0.30f &&
+                        pulled + (velocity * 0.085f).coerceAtMost(activation * 0.65f) >= latch.threshold
+                    if (!canceled && (armed > 0 || flick)) {
+                        if (armed == 0) haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
+                        vm.back()
+                    } else scope.launch {
+                        focus.requestFocus()
+                        keyboard?.show()
+                        morph.settle(1f)
+                    }
+                }
+                pulled = 0f
+                dragging = false
+                from = 1f
+                armed = 0
+                latched = false
+                latch = PillGestureLatch(activation, retreat, fixedThreshold = true)
+                tracker.resetTracking()
+            }
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset =
+                if (pulled > 0f && available.y < 0f) Offset(0f, drag(available.y, System.currentTimeMillis())) else Offset.Zero
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
+                if (source == NestedScrollSource.UserInput && available.y > 0f) Offset(0f, drag(available.y, System.currentTimeMillis())) else Offset.Zero
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (!dragging) return Velocity.Zero
+                release(available.y)
+                return available
+            }
+        }
+    }
+    val opened by remember(morph) { derivedStateOf { morph.progress >= 1f } }
+    LaunchedEffect(focus) {
+        // Start the IME as the search bar moves into place.
+        focus.requestFocus()
+    }
     Scaffold(
-        containerColor = p.background,
+        // The results are gone by the time the bar is halfway back down.
+        Modifier.nestedScroll(pull).graphicsLayer { alpha = ((morph.progress - 0.5f) * 2f).coerceIn(0f, 1f) },
+        containerColor = Color.Transparent,
         topBar = {
-            Column(Modifier.background(p.background).statusBarsPadding()) {
-                Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = vm::back) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.action_back), tint = p.ink) }
-                    TextField(
+            Column(Modifier.statusBarsPadding().pointerInput(pull) {
+                detectVerticalDragGestures(onDragEnd = { pull.release() }, onDragCancel = { pull.release(canceled = true) }) { change, amount ->
+                    change.consume()
+                    pull.drag(amount, change.uptimeMillis)
+                }
+            }.graphicsLayer { alpha = if (opened) 1f else 0f }) {
+                // The same pill as the calendar's toolbar, which grows into this bar when it is swiped up.
+                Box(Modifier.padding(SEARCH_BAR_MARGIN).fillMaxWidth().height(56.dp).clip(CircleShape).background(p.surface).border(1.dp, p.line, CircleShape)) {
+                    BasicTextField(
                         value = vm.searchQuery, onValueChange = vm::updateSearch,
-                        modifier = Modifier.weight(1f).focusRequester(focus),
-                        placeholder = { Text(stringResource(R.string.search_hint), color = p.faint) },
-                        singleLine = true, colors = plainFieldColors(),
+                        modifier = Modifier.fillMaxSize().padding(horizontal = if (vm.searchQuery.isEmpty()) 20.dp else 52.dp)
+                            .focusRequester(focus).semantics { contentDescription = searchLabel },
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = p.ink, textAlign = if (vm.searchQuery.isEmpty()) TextAlign.Start else TextAlign.Center),
+                        cursorBrush = SolidColor(p.accent), singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+                        decorationBox = { field ->
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                if (vm.searchQuery.isEmpty()) {
+                                    Box {
+                                        Text(searchLabel, color = p.faint, style = MaterialTheme.typography.bodyLarge,
+                                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Box(Modifier.matchParentSize(), contentAlignment = Alignment.CenterStart) { field() }
+                                    }
+                                } else field()
+                            }
+                        },
                     )
                     if (vm.searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { vm.updateSearch("") }) { Icon(Icons.Outlined.Close, stringResource(R.string.action_clear), tint = p.muted) }
+                        IconButton(onClick = { vm.updateSearch("") }, Modifier.align(Alignment.CenterEnd).padding(end = 4.dp)) {
+                            Icon(Icons.Outlined.Close, stringResource(R.string.action_clear), tint = p.muted)
+                        }
                     }
                 }
             }
         },
     ) { pad ->
+        // The last results fade out above the keyboard rather than being cut off by it.
+        val fade = with(LocalDensity.current) { 48.dp.toPx() }
         LazyColumn(
-            Modifier.fillMaxSize().padding(pad).imePadding(),
+            Modifier.fillMaxSize().padding(pad).imePadding()
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                .drawWithContent {
+                    drawContent()
+                    drawRect(Brush.verticalGradient(0f to Color.Black, 1f to Color.Transparent, startY = size.height - fade, endY = size.height),
+                        topLeft = Offset(0f, size.height - fade), blendMode = BlendMode.DstIn)
+                },
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             when {
-                vm.searchQuery.isBlank() -> item { Hint(stringResource(R.string.search_scope)) }
+                vm.searchQuery.isBlank() -> {}
                 // Loading no longer draws a line under the search field. Results already shown stay while it runs.
                 vm.searchLoading && vm.searchResults.isEmpty() -> item(key = "loading") { ListLoading() }
                 vm.searchResults.isEmpty() -> item { Hint(stringResource(R.string.search_none)) }
@@ -116,3 +262,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.results(events: List<
 private fun Hint(text: String) {
     Text(text, Modifier.fillMaxWidth().padding(16.dp), color = LocalPalette.current.muted, style = MaterialTheme.typography.bodyMedium)
 }
+
+/** Space around the search bar, which the calendar's toolbar grows into when swiped up. */
+internal val SEARCH_BAR_MARGIN = 8.dp

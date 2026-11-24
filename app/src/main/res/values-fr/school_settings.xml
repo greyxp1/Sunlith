@@ -31,19 +31,18 @@
     <string name="school_time_zone_none">Aucun résultat</string>
 
     <string name="school_connected">Connecté</string>
-    <string name="school_updated">Mis à jour %1$s</string>
-    <string name="school_updated_now">Mis à jour à l\'instant</string>
+    <string name="school_updated">Mis à jour le %1$s</string>
     <string name="school_never_updated">Pas encore mis à jour</string>
     <string name="school_stale">Pas à jour. Dernière mise à jour : %1$s</string>
     <string name="school_syncing">Mise à jour…</string>
     <string name="school_sync_now">Synchroniser</string>
-    <string name="school_refresh_note">Vérifie les changements régulièrement et à l\'ouverture de l\'app.</string>
     <plurals name="school_event_count">
         <item quantity="one">%1$d événement scolaire dans %2$s</item>
         <item quantity="many">%1$d événements scolaires dans %2$s</item>
         <item quantity="other">%1$d événements scolaires dans %2$s</item>
     </plurals>
     <string name="school_sign_in_again">Se reconnecter</string>
+    <string name="school_connection_details">Détails de la connexion</string>
     <string name="school_open_android_settings">Ouvrir les paramètres Android</string>
 
     <string name="school_error_portal">Vérifiez l\'adresse du portail.</string>
@@ -54,7 +53,7 @@
     <string name="school_error_data">Le portail a envoyé des données illisibles.</string>
     <string name="school_error_unavailable">Le portail n\'est pas disponible pour le moment.</string>
     <string name="school_error_storage">Impossible d\'enregistrer sur ce téléphone.</string>
-    <string name="school_storage_recovery">Vérifiez votre calendrier avant de réessayer. Si le problème persiste, déconnectez-vous en gardant les événements, puis reconnectez-vous.</string>
+    <string name="school_storage_recovery">Vérifiez votre calendrier avant de réessayer. Si le problème persiste, déconnectez l’horaire scolaire dans les Détails de la connexion, gardez vos événements, puis reconnectez l’horaire.</string>
     <string name="school_error_generic">Une erreur s\'est produite. Réessayez.</string>
 
     <string name="school_review_title">Vérifier les changements</string>
@@ -82,9 +81,8 @@
     <string name="school_pending_hold">Rien ne change tant que vous n\'appliquez pas.</string>
     <string name="school_apply">Appliquer</string>
 
-    <string name="school_notifications_section">Notifications</string>
     <string name="school_notifications">Notifications scolaires</string>
-    <string name="school_notifications_sub">Quand quelque chose change dans votre horaire</string>
+    <string name="school_allow_notifications">Autoriser les notifications scolaires</string>
     <string name="school_notifications_blocked">Les notifications sont désactivées pour cette app.</string>
     <string name="school_group_classes">Cours</string>
     <string name="school_group_notices">Avis de l\'école</string>
@@ -99,7 +97,6 @@
     <string name="school_alert_school_days">Changements de journées de cours</string>
     <string name="school_alert_connection">Problèmes de synchronisation</string>
 
-    <string name="school_change_connection">Se reconnecter</string>
     <string name="school_disconnect">Déconnecter</string>
     <string name="school_disconnect_title">Déconnecter l\'horaire scolaire ?</string>
     <string name="school_disconnect_body">Les cours déjà ajoutés restent dans votre calendrier comme des événements normaux.</string>
@@ -114,6 +111,6 @@
     <string name="school_settings_managed_event">Mis à jour par votre portail scolaire.</string>
     <string name="school_link_managed">Votre école mettra ces cours à jour. Déconnectez l\'horaire pour les modifier vous-même.</string>
     <string name="school_not_now">Pas maintenant</string>
-    <string name="school_error_calendar_changed">Des événements scolaires ont été déplacés ou remplacés dans une autre application. Déconnectez et reconnectez l’horaire scolaire.</string>
+    <string name="school_error_calendar_changed">Des événements scolaires ont été déplacés ou remplacés dans une autre application. Déconnectez l’horaire scolaire dans les Détails de la connexion, puis reconnectez l’horaire.</string>
     <string name="school_error_calendar_limit">Une partie de cet horaire est trop volumineuse pour le calendrier du téléphone.</string>
 </resources>

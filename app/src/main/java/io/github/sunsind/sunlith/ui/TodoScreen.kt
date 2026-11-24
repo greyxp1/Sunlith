@@ -1,6 +1,5 @@
 package io.github.sunsind.sunlith.ui
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,9 +18,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -46,6 +45,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.data.TodoItem
+import io.github.sunsind.sunlith.data.span
+import io.github.sunsind.sunlith.ui.calendar.displayTitle
+import io.github.sunsind.sunlith.ui.calendar.eventColors
 import java.time.ZoneId
 import kotlinx.coroutines.delay
 
@@ -65,7 +67,6 @@ fun TodoScreen(vm: SunlithViewModel) {
     val available = vm.todoItems.filter { it.availableAt <= now }
     val pending = available.filter { it.key !in vm.todoCompleted }.sortedBy { it.availableAt }
     val completed = available.filter { it.key in vm.todoCompleted }.sortedByDescending { it.availableAt }
-    BackHandler { vm.back() }
 
     Scaffold(
         containerColor = p.background,

@@ -3,6 +3,8 @@
     <string name="launcher_icon_choice">%1$s app icon</string>
     <string name="launcher_icon_light">Light</string>
     <string name="launcher_icon_dark">Dark</string>
-    <string name="launcher_icon_neutral">Neutral</string>
     <string name="launcher_icon_failed">The app icon could not be changed.</string>
+    <string name="launcher_icon_notice_title">Change app icon?</string>
+    <string name="launcher_icon_notice_body">Sunlith will close and reopen.</string>
+    <string name="launcher_icon_apply">Apply and reopen</string>
 </resources>

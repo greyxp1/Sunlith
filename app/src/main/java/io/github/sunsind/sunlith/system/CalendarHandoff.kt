@@ -7,7 +7,7 @@ import android.os.Bundle
 import android.provider.CalendarContract
 import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.data.EventDraft
-import io.github.sunsind.sunlith.ui.EditorState
+import io.github.sunsind.sunlith.ui.event.EditorState
 import java.time.Instant
 import java.time.LocalTime
 import java.time.ZoneId

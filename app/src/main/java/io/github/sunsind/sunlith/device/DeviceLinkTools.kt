@@ -3,7 +3,6 @@ package io.github.sunsind.sunlith.device
 import android.Manifest
 import android.content.Context
 import android.content.OperationApplicationException
-import android.content.pm.PackageManager
 import android.provider.CalendarContract.Events
 import io.github.sunsind.sunlith.data.CalendarDates
 import io.github.sunsind.sunlith.data.CalendarEvent
@@ -14,7 +13,6 @@ import io.github.sunsind.sunlith.data.EventDraft
 import io.github.sunsind.sunlith.data.IcsCodec
 import io.github.sunsind.sunlith.data.IcsTransfer
 import io.github.sunsind.sunlith.data.StoredEvent
-import io.github.sunsind.sunlith.device.DeviceLinkStore.hex
 import io.github.sunsind.sunlith.system.AppRefresh
 import io.github.sunsind.sunlith.system.SettingsStore
 import io.github.sunsind.sunlith.system.visibleCalendarIds
@@ -28,6 +26,8 @@ import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Base64
 import java.util.Locale
+import io.github.sunsind.sunlith.system.hasCalendarAccess
+import io.github.sunsind.sunlith.system.hasPermission
 
 /**
  * Tool handlers for the direct phone link. Inputs mirror integrations/mcp/src/device-validation.js.
@@ -58,16 +58,14 @@ internal class DeviceLinkTools(context: Context) {
     }
 
     private fun <T> read(block: () -> T): T {
-        if (!granted(Manifest.permission.READ_CALENDAR)) throw DeviceLinkError.permissionMissing()
+        if (!app.hasPermission(Manifest.permission.READ_CALENDAR)) throw DeviceLinkError.permissionMissing()
         return block()
     }
 
     private fun <T> write(block: () -> T): T {
-        if (!granted(Manifest.permission.READ_CALENDAR) || !granted(Manifest.permission.WRITE_CALENDAR)) throw DeviceLinkError.permissionMissing()
+        if (!app.hasCalendarAccess()) throw DeviceLinkError.permissionMissing()
         return block()
     }
-
-    private fun granted(permission: String) = app.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
 
     private fun currentTime(args: Args): Map<String, Any?> {
         val zone = args.zone("timeZone") ?: ZoneId.systemDefault()
@@ -180,7 +178,7 @@ internal class DeviceLinkTools(context: Context) {
             "allDay" to timing.allDay, "start" to timing.start, "end" to timing.end,
             "zone" to if (timing.allDay) "" else timing.zone, "recurrence" to rule.orEmpty(),
             "reminders" to draft.reminderMinutes,
-        ))).hex().take(32)
+        ))).toHexString().take(32)
         val prefix = "sunlith-op-$key-"
         val uid = "$prefix$payload@sunlith"
         val (id, reused) = synchronized(WRITES) {
@@ -425,7 +423,7 @@ internal class DeviceLinkTools(context: Context) {
 
     private fun nextPage(offset: Int, limit: Int, total: Int): String? = (offset.toLong() + limit).takeIf { it < total }?.toString()
 
-    private fun digest(text: String) = DeviceLinkStore.sha256(text.toByteArray(Charsets.UTF_8)).hex()
+    private fun digest(text: String) = DeviceLinkStore.sha256(text.toByteArray(Charsets.UTF_8)).toHexString()
 
     companion object {
         private val WRITES = Any()

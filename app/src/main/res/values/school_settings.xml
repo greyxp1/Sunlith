@@ -32,17 +32,16 @@
 
     <string name="school_connected">Connected</string>
     <string name="school_updated">Updated %1$s</string>
-    <string name="school_updated_now">Updated just now</string>
     <string name="school_never_updated">Not updated yet</string>
     <string name="school_stale">Out of date. Last updated %1$s</string>
     <string name="school_syncing">Updating…</string>
     <string name="school_sync_now">Sync now</string>
-    <string name="school_refresh_note">Checks for changes regularly and when you open the app.</string>
     <plurals name="school_event_count">
         <item quantity="one">%1$d school event in %2$s</item>
         <item quantity="other">%1$d school events in %2$s</item>
     </plurals>
     <string name="school_sign_in_again">Sign in again</string>
+    <string name="school_connection_details">Connection details</string>
     <string name="school_open_android_settings">Open Android settings</string>
 
     <string name="school_error_portal">Check the portal address.</string>
@@ -53,10 +52,10 @@
     <string name="school_error_data">The portal sent something that couldn\'t be read.</string>
     <string name="school_error_unavailable">The portal isn\'t available right now.</string>
     <string name="school_error_storage">Couldn\'t save on this phone.</string>
-    <string name="school_storage_recovery">Check your calendar before trying again. If this continues, disconnect while keeping events, then reconnect.</string>
+    <string name="school_storage_recovery">Check your calendar before trying again. If this continues, disconnect from Connection details, keep your events, and reconnect.</string>
     <string name="school_error_existing_classes">Some existing classes couldn\'t be linked safely. Check for duplicate imported classes, then try again.</string>
     <string name="school_error_generic">Something went wrong. Try again.</string>
-    <string name="school_error_calendar_changed">Some school events were moved or replaced in another app. Disconnect and reconnect the school schedule.</string>
+    <string name="school_error_calendar_changed">Some school events were moved or replaced in another app. Disconnect the school schedule from Connection details, then reconnect.</string>
     <string name="school_error_calendar_limit">Part of this schedule is too large to save in the phone\'s calendar.</string>
 
     <string name="school_review_title">Review changes</string>
@@ -80,9 +79,8 @@
     <string name="school_pending_hold">Nothing changes until you apply.</string>
     <string name="school_apply">Apply</string>
 
-    <string name="school_notifications_section">Notifications</string>
     <string name="school_notifications">School notifications</string>
-    <string name="school_notifications_sub">When something changes in your schedule</string>
+    <string name="school_allow_notifications">Allow school notifications</string>
     <string name="school_notifications_blocked">Notifications are off for this app.</string>
     <string name="school_group_classes">Classes</string>
     <string name="school_group_notices">School notices</string>
@@ -97,7 +95,6 @@
     <string name="school_alert_school_days">School day changes</string>
     <string name="school_alert_connection">Sync problems</string>
 
-    <string name="school_change_connection">Sign in again</string>
     <string name="school_disconnect">Disconnect</string>
     <string name="school_disconnect_title">Disconnect school schedule?</string>
     <string name="school_disconnect_body">Classes already added stay in your calendar as normal events.</string>

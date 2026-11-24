@@ -2,6 +2,8 @@ package io.github.sunsind.sunlith.device
 
 import android.content.Context
 import android.util.AtomicFile
+import androidx.core.util.readText
+import androidx.core.util.writeBytes
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
@@ -46,7 +48,7 @@ internal object DeviceLinkStore {
             forgetLastSuccess(context)
             write(file(context, PAIRING), DeviceLinkJson.write(linkedMapOf(
                 "version" to 1,
-                "tokenSha256" to pairing.tokenSha256.hex(),
+                "tokenSha256" to pairing.tokenSha256.toHexString(),
                 "calendarIds" to pairing.calendarIds.sorted().map(Long::toString),
                 "pairedAt" to pairing.pairedAtMillis,
             )))
@@ -93,7 +95,7 @@ internal object DeviceLinkStore {
     private fun loadLastSuccess(context: Context): Long? {
         if (!lastSuccessLoaded) {
             lastSuccess = try {
-                String(AtomicFile(file(context, LAST_SUCCESS)).readFully(), Charsets.US_ASCII).trim().toLongOrNull()?.takeIf { it > 0 }
+                AtomicFile(file(context, LAST_SUCCESS)).readText(Charsets.US_ASCII).trim().toLongOrNull()?.takeIf { it > 0 }
             } catch (_: IOException) {
                 null
             }
@@ -132,13 +134,13 @@ internal object DeviceLinkStore {
         val ids = (root["calendarIds"] as List<*>).map { (it as String).toLong().also { id -> require(id > 0) } }.toSet()
         require(ids.isNotEmpty())
         val pairedAt = (root["pairedAt"] as? Long)?.takeIf { it > 0 }
-        DeviceLinkPairing(hash.chunked(2).map { it.toInt(16).toByte() }.toByteArray(), ids, pairedAt)
+        DeviceLinkPairing(hash.hexToByteArray(), ids, pairedAt)
     } catch (_: Exception) {
         null
     }
 
     private fun readOperations(context: Context): List<OperationRecord> = try {
-        String(AtomicFile(file(context, OPERATIONS)).readFully(), Charsets.US_ASCII).lineSequence().mapNotNull { line ->
+        AtomicFile(file(context, OPERATIONS)).readText(Charsets.US_ASCII).lineSequence().mapNotNull { line ->
             val parts = line.split(' ')
             if (parts.size != 3) null else parts[2].toLongOrNull()?.let { OperationRecord(parts[0], parts[1], it) }
         }.toList()
@@ -148,22 +150,12 @@ internal object DeviceLinkStore {
 
     internal fun write(target: File, bytes: ByteArray) {
         target.parentFile?.mkdirs()
-        val file = AtomicFile(target)
-        val stream = file.startWrite()
-        try {
-            stream.write(bytes)
-            file.finishWrite(stream)
-        } catch (failure: IOException) {
-            file.failWrite(stream)
-            throw failure
-        }
+        AtomicFile(target).writeBytes(bytes)
     }
 
     internal fun file(context: Context, name: String) = File(File(context.noBackupFilesDir, "device-link"), name)
 
     internal fun sha256(bytes: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(bytes)
-
-    internal fun ByteArray.hex(): String = joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
     private const val PAIRING = "pairing.json"
     private const val OPERATIONS = "operations.txt"

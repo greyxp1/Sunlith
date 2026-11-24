@@ -1,10 +1,8 @@
 package io.github.sunsind.sunlith.school
 
-import android.Manifest
 import android.content.ContentProviderOperation
 import android.content.ContentUris
 import android.content.Context
-import android.content.pm.PackageManager
 import android.provider.CalendarContract
 import android.provider.CalendarContract.Calendars
 import android.provider.CalendarContract.Events
@@ -14,9 +12,11 @@ import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.data.assertRow
 import io.github.sunsind.sunlith.data.contentValues
 import io.github.sunsind.sunlith.data.values
+import io.github.sunsind.sunlith.system.SettingsStore
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
+import io.github.sunsind.sunlith.system.hasCalendarAccess
 
 internal class SchoolCalendarWriter(private val context: Context) {
     private val resolver get() = context.contentResolver
@@ -34,7 +34,7 @@ internal class SchoolCalendarWriter(private val context: Context) {
     fun destination(requested: Long?): Long {
         val choices = calendars()
         if (requested != null) return requested.also { if (choices.none { c -> c.id == it }) throw SchoolFailure(SchoolError.CALENDAR_PERMISSION) }
-        val recent = context.getSharedPreferences("sunlith_ui", Context.MODE_PRIVATE).getLong("last_calendar", -1)
+        val recent = SettingsStore(context).lastCalendar
         if (choices.any { it.id == recent }) return recent
         return query(Calendars.CONTENT_URI, arrayOf(Calendars._ID),
             "${Calendars.ACCOUNT_NAME}=? AND ${Calendars.ACCOUNT_TYPE}=? AND ${Calendars.CALENDAR_ACCESS_LEVEL}>=?",
@@ -390,7 +390,7 @@ internal class SchoolCalendarWriter(private val context: Context) {
         Events.RRULE to null, Events.RDATE to null, Events.EXRULE to null, Events.EXDATE to null, Events.DURATION to null,
     )
     private fun permission() {
-        if (context.checkSelfPermission(Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED || context.checkSelfPermission(Manifest.permission.WRITE_CALENDAR) != PackageManager.PERMISSION_GRANTED) throw SchoolFailure(SchoolError.CALENDAR_PERMISSION)
+        if (!context.hasCalendarAccess()) throw SchoolFailure(SchoolError.CALENDAR_PERMISSION)
     }
     private fun eventRows(calendar: Long) = query(Events.CONTENT_URI, arrayOf(Events._ID, *COLUMNS), "${Events.CALENDAR_ID}=? AND ${Events.DELETED}=0", arrayOf(calendar.toString()))
     private fun query(uri: android.net.Uri, columns: Array<String>, selection: String?, arguments: Array<String>?): List<Map<String, String?>> =

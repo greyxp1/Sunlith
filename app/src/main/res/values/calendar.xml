@@ -1,0 +1,27 @@
+<resources>
+    <string name="calendar_expanded">Expanded</string>
+    <string name="calendar_collapsed">Collapsed</string>
+    <string name="editor_start_date">Start date</string>
+    <string name="editor_start_time">Start time</string>
+    <string name="editor_end_date">End date</string>
+    <string name="editor_end_time">End time</string>
+    <string name="calendar_picker">Calendar</string>
+    <string name="view_month">Month</string>
+    <string name="view_week">Week</string>
+    <string name="view_day">Day</string>
+    <string name="calendar_open_day_events">Open day’s events</string>
+    <string name="calendar_teacher_absent">Teacher absent</string>
+    <string name="calendar_teacher_absent_range">Teacher absent %1$s</string>
+    <string name="calendar_absent_short">Absent</string>
+    <string name="calendar_absent_short_range">Absent %1$s</string>
+    <string name="details_school_periods">Class periods</string>
+    <string name="details_teacher_absence">Teacher absence</string>
+    <string name="timeline_loading_day">Loading events</string>
+    <string name="timeline_event_open">Open event</string>
+    <string name="calendar_absent_until">Absent until %1$s</string>
+    <string name="calendar_absent_from">Absent from %1$s</string>
+    <string name="calendar_class_cancelled">Class cancelled</string>
+    <string name="calendar_class_cancelled_until">Classes cancelled until %1$s</string>
+    <string name="calendar_show_month">Show month</string>
+    <string name="calendar_show_week">Show week</string>
+</resources>

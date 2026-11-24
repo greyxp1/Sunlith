@@ -2,7 +2,6 @@ package io.github.sunsind.sunlith.device
 
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
-import io.github.sunsind.sunlith.device.DeviceLinkStore.hex
 import java.math.BigInteger
 import java.net.Socket
 import java.security.KeyPairGenerator
@@ -26,7 +25,7 @@ internal object DeviceLinkTls {
     private const val PROVIDER = "AndroidKeyStore"
     @Volatile private var cached: Pair<PrivateKey, X509Certificate>? = null
 
-    fun fingerprint(): String = DeviceLinkStore.sha256(identity().second.encoded).hex()
+    fun fingerprint(): String = DeviceLinkStore.sha256(identity().second.encoded).toHexString()
 
     fun sslContext(): SSLContext {
         identity()

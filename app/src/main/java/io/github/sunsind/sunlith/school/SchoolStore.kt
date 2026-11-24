@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.AtomicFile
+import androidx.core.util.writeBytes
 import java.io.File
 import java.security.KeyStore
 import javax.crypto.Cipher
@@ -135,8 +136,7 @@ internal class SchoolSecureFile(context: Context, name: String, private val alia
         val cipher = cipher(Cipher.ENCRYPT_MODE, null)
         val bytes = byteArrayOf(1) + cipher.iv + cipher.doFinal(text.toByteArray(Charsets.UTF_8))
         schoolRequire(bytes.size <= maxBytes)
-        val stream = file.startWrite()
-        try { stream.write(bytes); file.finishWrite(stream) } catch (e: Exception) { file.failWrite(stream); throw e }
+        file.writeBytes(bytes)
     }
     fun delete() = file.delete()
     private fun cipher(mode: Int, spec: GCMParameterSpec?) = Cipher.getInstance("AES/GCM/NoPadding").apply {

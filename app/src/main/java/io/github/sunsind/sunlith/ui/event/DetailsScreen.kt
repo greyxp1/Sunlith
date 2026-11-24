@@ -1,0 +1,357 @@
+package io.github.sunsind.sunlith.ui.event
+
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Notes
+import androidx.compose.material.icons.outlined.CheckBox
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Event
+import androidx.compose.material.icons.outlined.EventBusy
+import androidx.compose.material.icons.outlined.LocationOn
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Repeat
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.School
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import io.github.sunsind.sunlith.R
+import io.github.sunsind.sunlith.data.CalendarEvent
+import io.github.sunsind.sunlith.data.EditBlockReason
+import io.github.sunsind.sunlith.data.EventDraft
+import io.github.sunsind.sunlith.data.TodoMarker
+import io.github.sunsind.sunlith.data.key
+import io.github.sunsind.sunlith.data.span
+import io.github.sunsind.sunlith.ui.LocalPalette
+import io.github.sunsind.sunlith.ui.Screen
+import io.github.sunsind.sunlith.ui.ScreenTopBar
+import io.github.sunsind.sunlith.ui.SunlithViewModel
+import io.github.sunsind.sunlith.ui.calendar.absenceStatus
+import io.github.sunsind.sunlith.ui.calendar.displayTitle
+import io.github.sunsind.sunlith.ui.calendar.eventAccent
+import io.github.sunsind.sunlith.ui.rememberFormats
+import java.time.Instant
+import java.time.ZoneId
+
+/** Provider facts that need a query: the stored draft and why editing is blocked. Loaded together, replaced only when ready. */
+private class DetailsMeta(val draft: EventDraft?, val blockReason: EditBlockReason?)
+
+/** The opened event as the calendar shows it now, with its school projection, or null when its date is not loaded. */
+private fun liveDetailsEvent(opened: CalendarEvent, loaded: List<CalendarEvent>): CalendarEvent? {
+    val key = opened.key()
+    loaded.firstOrNull { it.key() == key }?.let { return it }
+    if (!opened.rrule.isNullOrBlank()) return null
+    return loaded.singleOrNull { it.id == opened.id && it.calendarId == opened.calendarId && it.rrule.isNullOrBlank() }
+}
+
+/** What can be known about editing before the provider answers. A school projection means the school sync owns it. */
+private fun knownDetailsBlock(shown: CalendarEvent): EditBlockReason? =
+    if (shown.school != null) EditBlockReason.SCHOOL_MANAGED else null
+
+/** Notes come from the shown event. The stored draft is only used for an event the calendar has not loaded. */
+private fun detailsDescription(shown: CalendarEvent, live: Boolean, draftDescription: String?): String =
+    if (live) shown.description else draftDescription ?: shown.description
+
+@Composable
+fun DetailsScreen(vm: SunlithViewModel, opened: CalendarEvent) {
+    val p = LocalPalette.current
+    val f = rememberFormats()
+    val context = LocalContext.current
+    val zone = ZoneId.systemDefault()
+    // Screen.Details keeps the copy that was tapped. Reloads replace it with the current projection, so a To-do or
+    // Search copy gains its school details and an edited event never shows stale text.
+    val found = remember(opened, vm.events) { liveDetailsEvent(opened, vm.events) }
+    val event = found ?: opened
+    val live = found != null
+    val calendar = vm.calendars.firstOrNull { it.id == event.calendarId }
+    val writable = calendar?.writable == true
+    val series = !event.rrule.isNullOrBlank()
+    var meta by remember(event.id) { mutableStateOf<DetailsMeta?>(null) }
+    val revision = listOf(event.title, event.description, event.location, event.startMillis, event.endMillis, event.rrule,
+        event.allDay, knownDetailsBlock(event), calendar?.writable, vm.todoRevision)
+    LaunchedEffect(event.id, revision) {
+        // The previous answer stays on screen while this refresh runs, so rows never disappear and come back.
+        val (draft, reason) = vm.detailsMeta(event.id)
+        meta = DetailsMeta(draft, reason)
+    }
+    val loaded = meta
+    val draft = loaded?.draft
+    // A school projection is only attached after the school ledger matched the provider row, which is the same check
+    // the provider query starts with. So the managed notice is known in the first frame, with the title.
+    val blockReason = knownDetailsBlock(event) ?: loaded?.blockReason
+    val permissionsLoaded = loaded != null
+    var confirmDelete by rememberSaveable { mutableStateOf(false) }
+    var confirmSeriesEdit by rememberSaveable { mutableStateOf(false) }
+    val school = event.school
+    // A combined class spans several provider rows; the draft only describes the first one.
+    val periods = school?.periods.orEmpty().sortedBy { it.startMillis }.takeIf { it.size > 1 }.orEmpty()
+    val absences = school?.absences.orEmpty().sortedBy { it.startMillis }
+
+    Scaffold(
+        containerColor = p.background,
+        topBar = {
+            ScreenTopBar(title = "", onNavigate = vm::back) {
+                if (writable && permissionsLoaded && blockReason == null) {
+                    IconButton(onClick = { if (series) confirmSeriesEdit = true else vm.editEvent(event.id) }) {
+                        Icon(Icons.Outlined.Edit, stringResource(R.string.action_edit), tint = p.ink)
+                    }
+                    IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Outlined.Delete, stringResource(R.string.action_delete), tint = p.ink) }
+                }
+            }
+        },
+    ) { pad ->
+        Column(Modifier.fillMaxSize().padding(pad).verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 32.dp)) {
+            Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.Top) {
+                Box(Modifier.padding(top = 8.dp).size(14.dp).background(eventAccent(event), RoundedCornerShape(4.dp)))
+                Spacer(Modifier.width(16.dp))
+                SelectionContainer {
+                    Text(
+                        event.displayTitle().ifBlank { stringResource(R.string.untitled) }, color = p.ink,
+                        style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() },
+                    )
+                }
+            }
+            absenceStatus(event, f)?.let { status ->
+                Text(
+                    status, Modifier.padding(start = 50.dp, end = 20.dp, bottom = 4.dp), color = p.ink,
+                    style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            DetailRow(Icons.Outlined.Schedule) {
+                val span = event.span(zone)
+                when {
+                    event.allDay && !span.multiDay -> {
+                        PrimaryText(f.dayLong(span.first))
+                        SecondaryText(stringResource(R.string.all_day))
+                    }
+                    event.allDay -> {
+                        PrimaryText(f.range(f.dayShort(span.first), f.dayShort(span.last)))
+                        SecondaryText(stringResource(R.string.all_day_days, span.length.toInt()))
+                    }
+                    !span.multiDay -> {
+                        PrimaryText(f.dayLong(span.first))
+                        SecondaryText(f.timeRange(event.startMillis, event.endMillis))
+                    }
+                    else -> {
+                        val endDate = Instant.ofEpochMilli(event.endMillis).atZone(zone).toLocalDate()
+                        PrimaryText("${f.dayShort(span.first)}, ${f.time(event.startMillis)}")
+                        PrimaryText("${f.dayShort(endDate)}, ${f.time(event.endMillis)}")
+                    }
+                }
+                if (!event.allDay && event.timeZone.isNotBlank() && event.timeZone != java.util.TimeZone.getDefault().id) {
+                    SecondaryText(stringResource(R.string.details_timezone, event.timeZone))
+                }
+            }
+            val rule = if (live) event.rrule else draft?.rrule ?: event.rrule
+            if (!rule.isNullOrBlank()) DetailRow(Icons.Outlined.Repeat) { PrimaryText(f.repeat(rule)) }
+            DetailRow(Icons.Outlined.Event) {
+                PrimaryText(calendar?.name ?: event.calendarName.ifBlank { stringResource(R.string.unknown_calendar) })
+                calendar?.account?.takeIf { it.isNotBlank() && !calendar.name.startsWith(it) }?.let { SecondaryText(it) }
+            }
+            if (calendar != null && !calendar.writable) DetailRow(Icons.Outlined.Lock) { SecondaryText(stringResource(R.string.details_read_only)) }
+            if ((writable || !permissionsLoaded) && blockReason != null) DetailRow(Icons.Outlined.Lock) {
+                SecondaryText(stringResource(when (blockReason) {
+                    EditBlockReason.GUESTS -> R.string.details_guests
+                    EditBlockReason.RECURRENCE_EXCEPTION -> R.string.details_exceptions
+                    EditBlockReason.MISSING -> R.string.msg_event_missing
+                    EditBlockReason.READ_ONLY -> R.string.details_read_only
+                    EditBlockReason.SCHOOL_MANAGED -> R.string.school_settings_managed_event
+                    else -> R.string.details_unsupported
+                }))
+            }
+            // Everything below is already known from the calendar and shows in the first frame. Only the To-do switch
+            // waits for the provider's edit check before it can be used, and reminders appear once they are read.
+            DetailRow(Icons.Outlined.CheckBox) {
+                val todoLabel = stringResource(R.string.todo_tag)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        PrimaryText(stringResource(R.string.todo_tag))
+                        SecondaryText(stringResource(if (series) R.string.todo_tag_series_hint else R.string.todo_tag_hint))
+                    }
+                    Switch(
+                        checked = TodoMarker.has(detailsDescription(event, live, draft?.description)),
+                        onCheckedChange = { vm.setEventTodo(event, it) },
+                        enabled = writable && permissionsLoaded && blockReason == null && event.id !in vm.todoSavingIds,
+                        colors = switchColors(),
+                        modifier = Modifier.semantics { contentDescription = todoLabel },
+                    )
+                }
+            }
+            if (periods.isNotEmpty()) {
+                DetailRow(Icons.Outlined.LocationOn) {
+                    SecondaryText(stringResource(R.string.details_school_periods))
+                    periods.forEach { period ->
+                        Column(Modifier.padding(top = 6.dp).semantics(mergeDescendants = true) { }) {
+                            PrimaryText(f.timeRange(period.startMillis, period.endMillis))
+                            if (period.location.isNotBlank()) SecondaryText(period.location)
+                        }
+                    }
+                }
+            } else if (event.location.isNotBlank()) {
+                DetailRow(Icons.Outlined.LocationOn, onClick = {
+                    try {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=" + Uri.encode(event.location))))
+                    } catch (_: ActivityNotFoundException) {
+                        vm.message(context.getString(R.string.msg_no_maps))
+                    }
+                }) { PrimaryText(event.location) }
+            }
+            // The calendar load already read reminders in one batch; the fresh provider read replaces them when it lands.
+            // Unknown reminders show nothing rather than claiming there are none.
+            (draft?.reminderMinutes ?: event.reminderMinutes)?.takeIf { it.isNotEmpty() && periods.isEmpty() }?.let { reminders ->
+                DetailRow(Icons.Outlined.Notifications) { reminders.sorted().forEach { PrimaryText(f.reminder(it)) } }
+            }
+            val notes = TodoMarker.strip(if (periods.isNotEmpty()) event.description else detailsDescription(event, live, draft?.description))
+            val schoolNotes = schoolNotes(event, notes)
+            if (schoolNotes != null && (schoolNotes.teachers != null || schoolNotes.summary != null)) DetailRow(Icons.Outlined.School) {
+                schoolNotes.teachers?.let { PrimaryText(it) }
+                schoolNotes.summary?.let { SecondaryText(it) }
+            }
+            if (absences.isNotEmpty()) {
+                DetailRow(Icons.Outlined.EventBusy) {
+                    SecondaryText(stringResource(R.string.details_teacher_absence))
+                    absences.forEach { absence ->
+                        Column(Modifier.padding(top = 6.dp).semantics(mergeDescendants = true) { }) {
+                            PrimaryText(when {
+                                absence.allDay -> stringResource(R.string.all_day)
+                                absence.endMillis > absence.startMillis -> f.timeRange(absence.startMillis, absence.endMillis)
+                                else -> f.time(absence.startMillis)
+                            })
+                            // Notes the event description already shows below are not repeated here.
+                            absence.notes.map { it.trim() }.filter { it.isNotEmpty() && it !in notes }.forEach { note ->
+                                SelectionContainer { Text(note, color = p.ink, style = MaterialTheme.typography.bodyMedium) }
+                            }
+                        }
+                    }
+                }
+            }
+            val shownNotes = schoolNotes?.notes ?: notes
+            if (shownNotes.isNotBlank()) {
+                DetailRow(Icons.AutoMirrored.Outlined.Notes) {
+                    SelectionContainer { Text(shownNotes, color = p.ink, style = MaterialTheme.typography.bodyLarge) }
+                }
+            }
+        }
+    }
+
+    if (confirmSeriesEdit) {
+        AlertDialog(
+            onDismissRequest = { confirmSeriesEdit = false },
+            title = { Text(stringResource(R.string.edit_series_title)) },
+            text = { Text(stringResource(R.string.edit_series_body)) },
+            confirmButton = { TextButton(onClick = { confirmSeriesEdit = false; vm.editEvent(event.id) }) { Text(stringResource(R.string.action_edit_series)) } },
+            dismissButton = { TextButton(onClick = { confirmSeriesEdit = false }) { Text(stringResource(R.string.action_cancel)) } },
+        )
+    }
+    if (confirmDelete) {
+        DeleteDialog(series = series, onDismiss = { confirmDelete = false }) {
+            confirmDelete = false
+            vm.deleteEvent(event.id)
+        }
+    }
+}
+
+@Composable
+private fun DetailRow(icon: ImageVector, onClick: (() -> Unit)? = null, content: @Composable () -> Unit) {
+    val p = LocalPalette.current
+    val base = Modifier.fillMaxWidth().heightIn(min = 56.dp)
+    Row(
+        (if (onClick != null) base.clickable(role = Role.Button, onClick = onClick) else base).padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Icon(icon, null, tint = p.muted, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(18.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) { content() }
+    }
+}
+
+@Composable
+private fun PrimaryText(text: String) {
+    Text(text, color = LocalPalette.current.ink, style = MaterialTheme.typography.bodyLarge)
+}
+
+@Composable
+private fun SecondaryText(text: String) {
+    Text(text, color = LocalPalette.current.muted, style = MaterialTheme.typography.bodyMedium)
+}
+
+/** The school sync's description, split into its teachers, the class summary shown as a row, and any other notes. */
+private class SchoolNotes(val teachers: String?, val summary: String?, val notes: String)
+
+/**
+ * Reads the lines the school sync writes into a class's description. The course and class become one summary line,
+ * the teachers a row, and the rooms line is dropped since the location row shows the rooms. Lines written in another
+ * language than the current one are left in the notes.
+ */
+@Composable
+private fun schoolNotes(event: CalendarEvent, notes: String): SchoolNotes? {
+    val school = event.school ?: return null
+    val context = LocalContext.current
+    fun prefix(id: Int, vararg extra: String) = context.getString(id, "\u0000", *extra).substringBefore("\u0000")
+    val teachersPrefix = prefix(R.string.school_sync_teachers)
+    val dropped = listOf(prefix(R.string.school_sync_rooms), prefix(R.string.school_sync_class_kind), prefix(R.string.school_sync_course, ""))
+    var teachers: String? = null
+    val rest = notes.lines().filter { line ->
+        when {
+            line.startsWith(teachersPrefix) -> { teachers = line.removePrefix(teachersPrefix).trim().ifBlank { null }; false }
+            dropped.any { line.startsWith(it) } -> false
+            else -> true
+        }
+    }.joinToString("\n").trim()
+    val kind = when (school.classKind) {
+        "1" -> R.string.school_sync_theory
+        "2" -> R.string.school_sync_lab
+        "3" -> R.string.school_sync_stage
+        else -> null
+    }?.let { context.getString(it) }
+    // Only a group's last two digits tell groups apart; the portal pads them, as in 000002.
+    val course = school.course.takeIf { it.isNotBlank() }?.let { context.getString(R.string.details_school_course, it, school.group.takeLast(2)) }
+    return SchoolNotes(teachers, listOfNotNull(kind, course).joinToString(", ").ifBlank { null }, rest)
+}

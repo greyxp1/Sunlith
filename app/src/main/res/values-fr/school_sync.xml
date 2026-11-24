@@ -11,6 +11,7 @@
     <string name="school_sync_stage">Stage</string>
     <string name="school_sync_teachers">Enseignants : %1$s</string>
     <string name="school_sync_rooms">Locaux : %1$s</string>
+    <string name="details_school_course">Cours %1$s, groupe %2$s</string>
     <string name="school_sync_notification_title">Horaire scolaire</string>
     <string name="school_sync_changes_channel">Changements à l’horaire</string>
     <string name="school_sync_problems_channel">Problèmes de connexion</string>

@@ -16,14 +16,12 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.sunsind.sunlith.R
-import io.github.sunsind.sunlith.ui.Screen
 import io.github.sunsind.sunlith.ui.LocalPalette
-import io.github.sunsind.sunlith.ui.SettingsScreen
+import io.github.sunsind.sunlith.ui.settings.SettingsScreen
 import io.github.sunsind.sunlith.ui.SystemBarsForPalette
 import io.github.sunsind.sunlith.ui.SunlithTheme
 import io.github.sunsind.sunlith.ui.SunlithViewModel
@@ -38,14 +36,12 @@ class WidgetConfigureActivity : ComponentActivity() {
         setResult(RESULT_CANCELED, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId))
         val provider = AppWidgetManager.getInstance(this).getAppWidgetInfo(widgetId)?.provider
         if (provider != ComponentName(this, AgendaWidgetReceiver::class.java)) { finish(); return }
-        if (Screen.WidgetSettings !in vm.stack) vm.open(Screen.WidgetSettings)
         setContent {
-            SunlithTheme(vm.themeMode, vm.materialYou) {
+            SunlithTheme(vm.themeMode) {
                 val palette = LocalPalette.current
                 SystemBarsForPalette()
-                LaunchedEffect(vm.stack.isEmpty()) { if (vm.stack.isEmpty()) finish() }
                 Column(Modifier.fillMaxSize().background(palette.background).navigationBarsPadding()) {
-                    Box(Modifier.weight(1f)) { SettingsScreen(vm, initialPage = "widget") }
+                    Box(Modifier.weight(1f)) { SettingsScreen(vm, widget = true, onBack = ::finish) }
                     Button(onClick = ::applyAndFinish, modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                         Text(stringResource(R.string.action_done))
                     }
@@ -55,7 +51,6 @@ class WidgetConfigureActivity : ComponentActivity() {
     }
 
     private fun applyAndFinish() {
-        vm.commitOpacity()
         AgendaWidgetReceiver.updateAll(this)
         setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId))
         finish()

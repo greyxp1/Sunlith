@@ -15,9 +15,6 @@
     <string name="no_calendars_on_phone">Il n\'y a encore aucun agenda sur ce téléphone. Ajoutez un compte avec la synchronisation d\'agenda dans les paramètres Android, ou créez un agenda qui reste sur cet appareil.</string>
     <string name="no_calendars_selected">Aucun agenda n\'est affiché dans Sunlith pour l\'instant.</string>
 
-    <string name="view_month">Mois</string>
-    <string name="view_week">Semaine</string>
-    <string name="view_day">Jour</string>
 
     <string name="title_calendars">Agendas</string>
     <string name="title_settings">Paramètres</string>
@@ -163,22 +160,19 @@
     </plurals>
 
     <string name="search_hint">Rechercher des événements</string>
-    <string name="search_scope">Cherche dans les titres, lieux, notes et noms d\'agendas, de l\'année passée aux deux prochaines années, dans les agendas affichés.</string>
     <string name="search_none">Aucun événement trouvé.</string>
     <string name="search_past">Passés</string>
 
     <string name="theme_dark">Sombre</string>
     <string name="theme_light">Clair</string>
     <string name="theme_system">Comme le système</string>
-    <string name="settings_monday">La semaine commence le lundi</string>
     <string name="settings_local_sub">Reste sur ce téléphone et ne se synchronise avec aucun compte.</string>
     <string name="settings_reminders_toggle">Notifications de rappel</string>
     <string name="settings_reminders_blocked">Les notifications sont bloquées pour Sunlith. Activez cette option pour les autoriser.</string>
-    <string name="settings_widget_opacity">Opacité du fond</string>
     <string name="settings_import">Importer un fichier .ics</string>
     <string name="settings_export">Exporter un fichier .ics</string>
     <string name="settings_exporting">Exportation…</string>
-    <string name="about_source">Code source</string>
+    <string name="about_source">GitHub</string>
 
     <string name="help_migration_title">Passer d\'une autre app d\'agenda</string>
     <string name="help_migration_body">Sunlith lit le stockage d’agenda partagé d’Android. Vos agendas existants peuvent donc apparaître sans import.\n\n1. Ouvrez Agendas dans Sunlith et sélectionnez ceux que vous utilisez.\n2. Vérifiez quelques événements avec une heure, sur une journée entière et répétés.\n3. Si un compte manque, ajoutez-le dans les paramètres Android et activez la synchronisation.\n\nUtilisez l’import .ics pour copier des événements vers un autre agenda. Sauvegardez-les avant et évitez les doublons.\n\nChoisissez une seule app pour les rappels si plusieurs apps vous avertissent pour les mêmes événements.</string>
@@ -228,7 +222,6 @@
     <string name="calendars_intro">Choisissez les agendas à afficher dans Sunlith et son widget.</string>
     <string name="calendar_read_only">Lecture seule</string>
     <string name="calendar_on_device">Sur cet appareil</string>
-    <string name="calendar_hidden_system">Masqué dans l\'agenda du système</string>
 
     <string name="msg_saved">Événement enregistré</string>
     <string name="msg_deleted">Événement supprimé</string>
@@ -259,46 +252,11 @@
     <string name="details_exceptions">Utilisez votre app d’agenda habituelle pour modifier cette série avec des exceptions.</string>
     <string name="details_unsupported">Cet événement ne peut pas être modifié ici. Ouvrez-le dans votre app d’agenda habituelle.</string>
     <string name="msg_export_skipped">Certains événements non pris en charge ont été ignorés. Vérifiez cette sauvegarde avant de vous y fier.</string>
-    <string name="time_range">%1$s - %2$s</string>
-    <string name="notification_time_range">%1$s - %2$s</string>
+    <string name="time_range">%1$s – %2$s</string>
     <string name="notification_location_separator">%1$s, %2$s</string>
-    <string name="notification_content">%1$s\n%2$s</string>
-    <string name="notification_starts_at">Commence le %1$s</string>
-    <string name="notification_started_at">A commencé le %1$s</string>
-    <string name="notification_timing_future">%1$s\n%2$s</string>
-    <string name="notification_timing_now">Commence maintenant\n%1$s</string>
-    <string name="notification_timing_ongoing">En cours\n%1$s</string>
-    <string name="notification_timing_past">%1$s\n%2$s</string>
-    <string name="notification_in_less_than_minute">Dans moins d’une minute</string>
-    <plurals name="notification_in_minutes">
-        <item quantity="one">Dans %d minute</item>
-        <item quantity="other">Dans %d minutes</item>
-    </plurals>
-    <plurals name="notification_in_hours">
-        <item quantity="one">Dans %d heure</item>
-        <item quantity="other">Dans %d heures</item>
-    </plurals>
-    <plurals name="notification_in_days">
-        <item quantity="one">Dans %d jour</item>
-        <item quantity="other">Dans %d jours</item>
-    </plurals>
-    <string name="notification_less_than_minute_ago">A commencé il y a moins d’une minute</string>
-    <plurals name="notification_minutes_ago">
-        <item quantity="one">A commencé il y a %d minute</item>
-        <item quantity="other">A commencé il y a %d minutes</item>
-    </plurals>
-    <plurals name="notification_hours_ago">
-        <item quantity="one">A commencé il y a %d heure</item>
-        <item quantity="other">A commencé il y a %d heures</item>
-    </plurals>
-    <plurals name="notification_days_ago">
-        <item quantity="one">A commencé il y a %d jour</item>
-        <item quantity="other">A commencé il y a %d jours</item>
-    </plurals>
     <string name="local_calendar_name">Sunlith (sur cet appareil)</string>
     <string name="ai_intro_title">Votre agenda, connecté</string>
     <string name="ai_intro_lead">Ajoutez, modifiez et supprimez des événements du téléphone depuis votre ordinateur.</string>
     <string name="action_set_up_ai">Connecter votre ordinateur</string>
     <string name="action_without_ai">Utiliser seulement l’agenda</string>
-    <string name="unknown_account">Autres agendas</string>
 </resources>

@@ -17,7 +17,7 @@ internal class SchoolNotifications(private val context: Context) {
         val enabled = enabledChanges(record, changes)
         if (enabled.isEmpty() || !context.notificationsAllowed()) return
         val categories = enabled.flatMap { it.categories intersect record.notifications.categories }.toSet()
-        val labels = categories.sortedBy { it.ordinal }.joinToString(", ") { context.getString(label(it)) }
+        val labels = categories.sortedBy { it.ordinal }.joinToString(", ") { context.getString(it.label()) }
         val first = enabled.minBy { it.item.date }.item
         val detail = enabled.distinctBy { it.item.id }.take(6).joinToString("\n") { delta ->
             buildString {
@@ -82,24 +82,25 @@ internal class SchoolNotifications(private val context: Context) {
         return manager
     }
     private fun open(kind: String, date: String?): PendingIntent {
-        val intent = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        val intent = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
             .setData(Uri.parse("sunlith://school/$kind"))
         if (date != null) intent.putExtra("school_event_date", date)
         else if (kind == "messages") intent.putExtra(MainActivity.EXTRA_SCHOOL_MESSAGES, true)
         else intent.putExtra("school_open_settings", true)
         return PendingIntent.getActivity(context, when (kind) { "review" -> 73203; "changes" -> 73201; "messages" -> 73204; else -> 73202 }, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
-    private fun label(alert: SchoolAlert) = when (alert) {
-        SchoolAlert.TEACHER_ABSENCES -> R.string.school_alert_teacher_absences
-        SchoolAlert.CLASS_TIMES -> R.string.school_alert_class_times
-        SchoolAlert.ROOMS -> R.string.school_alert_rooms
-        SchoolAlert.TEACHERS -> R.string.school_alert_teachers
-        SchoolAlert.ADDED_CLASSES -> R.string.school_alert_added
-        SchoolAlert.REMOVED_CLASSES -> R.string.school_alert_removed
-        SchoolAlert.ASSESSMENTS -> R.string.school_alert_assessments
-        SchoolAlert.SCHOOL_DAYS -> R.string.school_alert_school_days
-        SchoolAlert.CONNECTION_PROBLEMS -> R.string.school_alert_connection
-        SchoolAlert.ADMINISTRATION_MESSAGES -> R.string.school_alert_administration
-    }
     companion object { private const val CHANGES = "school_schedule_changes"; private const val PROBLEMS = "school_connection_problems"; private const val MESSAGES = "school_administration_messages" }
+}
+
+internal fun SchoolAlert.label(): Int = when (this) {
+    SchoolAlert.TEACHER_ABSENCES -> R.string.school_alert_teacher_absences
+    SchoolAlert.CLASS_TIMES -> R.string.school_alert_class_times
+    SchoolAlert.ROOMS -> R.string.school_alert_rooms
+    SchoolAlert.TEACHERS -> R.string.school_alert_teachers
+    SchoolAlert.ADDED_CLASSES -> R.string.school_alert_added
+    SchoolAlert.REMOVED_CLASSES -> R.string.school_alert_removed
+    SchoolAlert.ASSESSMENTS -> R.string.school_alert_assessments
+    SchoolAlert.SCHOOL_DAYS -> R.string.school_alert_school_days
+    SchoolAlert.CONNECTION_PROBLEMS -> R.string.school_alert_connection
+    SchoolAlert.ADMINISTRATION_MESSAGES -> R.string.school_alert_administration
 }

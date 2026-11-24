@@ -5,7 +5,6 @@ import android.content.ContentProviderOperation
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
-import android.content.pm.PackageManager
 import android.database.Cursor
 import android.net.Uri
 import android.os.Looper
@@ -22,6 +21,7 @@ import io.github.sunsind.sunlith.system.AppRefresh
 import java.time.ZoneId
 import java.util.TimeZone
 import java.util.UUID
+import io.github.sunsind.sunlith.system.hasPermission
 
 class CalendarRepository(context: Context) {
     private val context = context.applicationContext
@@ -61,7 +61,7 @@ class CalendarRepository(context: Context) {
         val rows = instances(startMillis, endMillis, ids, "", (ids.map(Long::toString) + Events.STATUS_CANCELED.toString()).toTypedArray(),
             "${Instances.BEGIN} ASC, ${Instances.END} ASC, ${Instances.TITLE} COLLATE NOCASE ASC", withAlarms)
         val events = if (!reminders) rows else {
-            val minutes = alertReminders(withAlarms)
+            val minutes = reminderMinutes(withAlarms).mapValues { (_, list) -> list.distinct().sorted() }
             rows.map { it.copy(reminderMinutes = minutes[it.id].orEmpty()) }
         }
         return if (school) SchoolCalendarPresentation.annotate(context, events) else events
@@ -94,26 +94,6 @@ class CalendarRepository(context: Context) {
                 }
             }
         } ?: emptyList()
-    }
-
-    /** Alert reminder minutes per event, read in batches so a large range costs a few queries, not one per event. */
-    private fun alertReminders(eventIds: Set<Long>): Map<Long, List<Int>> {
-        if (eventIds.isEmpty()) return emptyMap()
-        val result = mutableMapOf<Long, MutableList<Int>>()
-        eventIds.chunked(400).forEach { chunk ->
-            resolver.query(Reminders.CONTENT_URI, arrayOf(Reminders.EVENT_ID, Reminders.MINUTES, Reminders.METHOD),
-                "${Reminders.EVENT_ID} IN (${chunk.joinToString(",") { "?" }})", chunk.map(Long::toString).toTypedArray(), null,
-            )?.use { cursor ->
-                while (cursor.moveToNext()) {
-                    val method = cursor.int(Reminders.METHOD)
-                    val minutes = cursor.int(Reminders.MINUTES)
-                    if ((method == Reminders.METHOD_ALERT || method == Reminders.METHOD_DEFAULT) && minutes >= 0) {
-                        result.getOrPut(cursor.long(Reminders.EVENT_ID)) { mutableListOf() }.add(minutes)
-                    }
-                }
-            }
-        }
-        return result.mapValues { (_, list) -> list.distinct().sorted() }
     }
 
     fun getEvent(id: Long): EventDraft? {
@@ -194,7 +174,7 @@ class CalendarRepository(context: Context) {
 
     fun editBlockReason(id: Long): EditBlockReason? {
         checkRead()
-        return blockReason(id, readStored(id), checkData = true)
+        return blockReason(id, readStored(id, includeReminders = false), checkData = true)
     }
 
     private fun blockReason(id: Long, stored: StoredEvent?, checkData: Boolean): EditBlockReason? {
@@ -461,9 +441,9 @@ class CalendarRepository(context: Context) {
         }
     }
 
-    private fun readStored(id: Long): StoredEvent? = resolver.query(
+    private fun readStored(id: Long, includeReminders: Boolean = true): StoredEvent? = resolver.query(
         ContentUris.withAppendedId(Events.CONTENT_URI, id), STORED_PROJECTION, "${Events.DELETED}=0", null, null,
-    )?.use { if (it.moveToFirst()) readStored(it) else null }
+    )?.use { if (it.moveToFirst()) readStored(it, includeReminders) else null }
 
     private fun readStored(cursor: Cursor, includeReminders: Boolean = true): StoredEvent {
         val id = cursor.long(Events._ID)
@@ -526,14 +506,14 @@ class CalendarRepository(context: Context) {
 
     private fun checkRead() {
         check(Looper.myLooper() != Looper.getMainLooper()) { "Calendar access must run off the main thread." }
-        check(context.checkSelfPermission(Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED) {
+        check(context.hasPermission(Manifest.permission.READ_CALENDAR)) {
             "Allow calendar access to show your events."
         }
     }
 
     private fun checkWrite() {
         checkRead()
-        check(context.checkSelfPermission(Manifest.permission.WRITE_CALENDAR) == PackageManager.PERMISSION_GRANTED) {
+        check(context.hasPermission(Manifest.permission.WRITE_CALENDAR)) {
             "Allow calendar access to save events."
         }
     }

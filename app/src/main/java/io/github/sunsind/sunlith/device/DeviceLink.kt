@@ -1,20 +1,21 @@
 package io.github.sunsind.sunlith.device
 
-import android.Manifest
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Looper
+import androidx.annotation.StringRes
 import androidx.core.content.ContextCompat
+import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.data.CalendarRepository
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import io.github.sunsind.sunlith.system.hasCalendarAccess
+import io.github.sunsind.sunlith.system.needsNotificationPermission
 
-data class DeviceLinkState(val running: Boolean = false, val error: String? = null)
+data class DeviceLinkState(val running: Boolean = false, @param:StringRes val error: Int? = null)
 
 enum class DeviceLinkAddressKind { TAILSCALE, VPN, LOCAL_NETWORK }
 data class DeviceLinkAddress(val host: String, val kind: DeviceLinkAddressKind)
@@ -52,7 +53,7 @@ object DeviceLink {
         try {
             ContextCompat.startForegroundService(app, Intent(app, DeviceLinkService::class.java))
         } catch (_: Exception) {
-            update(DeviceLinkState(false, START_FAILED))
+            update(DeviceLinkState(false, R.string.device_link_start_error))
         }
     }
 
@@ -100,9 +101,7 @@ object DeviceLink {
         stop(context)
     }
 
-    fun isPaired(context: Context): Boolean = DeviceLinkStore.pairing(context.applicationContext) != null
-
-    fun pairedCalendarIds(context: Context): Set<Long> = DeviceLinkStore.pairing(context.applicationContext)?.calendarIds.orEmpty()
+    internal fun pairedCalendarIds(context: Context): Set<Long>? = DeviceLinkStore.pairing(context.applicationContext)?.calendarIds
 
     @Synchronized
     fun cachedPairingShare(context: Context): File? = File(context.cacheDir, "pairing-share").listFiles()
@@ -118,20 +117,20 @@ object DeviceLink {
         File(context.cacheDir, "pairing-share").listFiles()?.filter { it.isFile }?.forEach { it.delete() }
     }
 
+    internal fun clearError(@StringRes error: Int) {
+        mutableState.update { if (it.error == error) it.copy(error = null) else it }
+    }
+
     internal fun update(value: DeviceLinkState) { mutableState.value = value }
 
     internal fun activityChanged() = mutableActivity.update { it + 1 }
 
-    internal fun missingPermission(context: Context): String? {
-        fun granted(permission: String) = ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
-        if (!granted(Manifest.permission.READ_CALENDAR) || !granted(Manifest.permission.WRITE_CALENDAR)) return CALENDAR_MISSING
-        if (Build.VERSION.SDK_INT >= 33 && !granted(Manifest.permission.POST_NOTIFICATIONS)) return NOTIFICATIONS_MISSING
+    @StringRes
+    internal fun missingPermission(context: Context): Int? {
+        if (!context.hasCalendarAccess()) return R.string.device_link_calendar_required
+        if (context.needsNotificationPermission()) return R.string.device_link_notification_required
         return null
     }
 
     private const val LOOPBACK = "127.0.0.1"
-    private const val CALENDAR_MISSING = "Allow calendar access before starting the phone link."
-    private const val NOTIFICATIONS_MISSING = "Allow notifications before starting the phone link."
-    internal const val START_FAILED = "The phone link could not start. Open Sunlith and try again."
-    internal const val BIND_FAILED = "The phone link could not open port 39393. Another app may be using it."
 }

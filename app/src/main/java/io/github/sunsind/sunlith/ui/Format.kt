@@ -7,10 +7,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import io.github.sunsind.sunlith.R
-import io.github.sunsind.sunlith.data.CalendarDates
 import io.github.sunsind.sunlith.data.CalendarEvent
+import io.github.sunsind.sunlith.data.span
 import java.time.DayOfWeek
-import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.YearMonth
@@ -34,7 +33,6 @@ class Formats(private val context: Context, val locale: Locale) {
     private val numericDayMonth = pattern("Md")
     private val shortMonth = pattern("MMM")
     private val monthYear = pattern("MMMMy")
-    private val monthOnly = pattern("LLLL")
 
     val is24Hour: Boolean get() = DateFormat.is24HourFormat(context)
 
@@ -47,7 +45,6 @@ class Formats(private val context: Context, val locale: Locale) {
     fun dayMonth(d: LocalDate): String = dayMonth.format(d)
     fun numericDayMonth(d: LocalDate): String = numericDayMonth.format(d)
     fun shortMonth(m: YearMonth): String = shortMonth.format(m.atDay(1)).cap()
-    fun monthName(m: YearMonth): String = monthOnly.format(m.atDay(1)).cap()
     fun monthYear(m: YearMonth): String = monthYear.format(m.atDay(1)).cap()
     fun weekdayShort(d: DayOfWeek): String = d.getDisplayName(TextStyle.SHORT, locale).trimEnd('.').cap()
     fun weekdayNarrow(d: DayOfWeek): String = d.getDisplayName(TextStyle.NARROW_STANDALONE, locale).cap()
@@ -140,57 +137,13 @@ enum class RepeatPreset(val rule: String?, val label: Int) {
     }
 }
 
-data class DaySpan(val first: LocalDate, val last: LocalDate) {
-    val multiDay: Boolean get() = last.isAfter(first)
-    val length: Long get() = ChronoUnit.DAYS.between(first, last) + 1
-}
+/** The Monday that opens the grid for [month]. Weeks always start on Monday. */
+fun gridStart(month: YearMonth): LocalDate = weekStart(month.atDay(1))
 
-fun CalendarEvent.span(zone: ZoneId): DaySpan {
-    if (allDay) {
-        val start = CalendarDates.allDayDate(startMillis)
-        val endExclusive = CalendarDates.allDayDate(endMillis)
-        return DaySpan(start, if (endExclusive.isAfter(start)) endExclusive.minusDays(1) else start)
-    }
-    val start = Instant.ofEpochMilli(startMillis).atZone(zone).toLocalDate()
-    val last = if (endMillis > startMillis) Instant.ofEpochMilli(endMillis - 1).atZone(zone).toLocalDate() else start
-    return DaySpan(start, if (last.isBefore(start)) start else last)
-}
+/** The Monday of the week holding [date]. */
+fun weekStart(date: LocalDate): LocalDate = date.minusDays(date.dayOfWeek.value - 1L)
 
-fun CalendarEvent.key(): String = "$id-$startMillis"
-
-fun indexByDay(events: List<CalendarEvent>, zone: ZoneId, from: LocalDate, to: LocalDate): Map<LocalDate, List<CalendarEvent>> {
-    val map = HashMap<LocalDate, MutableList<CalendarEvent>>()
-    for (event in events) {
-        val span = event.span(zone)
-        var day = if (span.first.isBefore(from)) from else span.first
-        val end = if (span.last.isAfter(to)) to else span.last
-        while (!day.isAfter(end)) {
-            map.getOrPut(day) { mutableListOf() }.add(event)
-            day = day.plusDays(1)
-        }
-    }
-    val order = compareByDescending<CalendarEvent> { it.allDay || it.span(zone).multiDay }
-        .thenBy { it.startMillis }.thenBy { it.endMillis }.thenBy { it.title.lowercase() }
-    return map.mapValues { (_, list) -> list.sortedWith(order) }
-}
-
-fun gridStart(month: YearMonth, mondayFirst: Boolean): LocalDate {
-    val first = month.atDay(1)
-    val startDow = if (mondayFirst) DayOfWeek.MONDAY else DayOfWeek.SUNDAY
-    val offset = (first.dayOfWeek.value - startDow.value + 7) % 7
-    return first.minusDays(offset.toLong())
-}
-
-fun weekStart(date: LocalDate, mondayFirst: Boolean): LocalDate {
-    val startDow = if (mondayFirst) DayOfWeek.MONDAY else DayOfWeek.SUNDAY
-    val offset = (date.dayOfWeek.value - startDow.value + 7) % 7
-    return date.minusDays(offset.toLong())
-}
-
-fun weekDays(mondayFirst: Boolean): List<DayOfWeek> {
-    val start = if (mondayFirst) DayOfWeek.MONDAY else DayOfWeek.SUNDAY
-    return (0L until 7L).map { start.plus(it) }
-}
+val weekDays: List<DayOfWeek> = DayOfWeek.entries
 
 fun Context.timeLabel(event: CalendarEvent, day: LocalDate, zone: ZoneId, f: Formats): String {
     val span = event.span(zone)

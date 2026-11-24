@@ -1,16 +1,11 @@
 <resources>
     <string name="device_link_title">Computer connection</string>
-    <string name="action_refresh">Refresh</string>
-    <string name="device_link_lead">Manage Sunlith directly over Wi-Fi or Tailscale.</string>
+    <string name="device_link_allow_access">Allow computer access</string>
     <string name="device_link_access">Calendars shared with computer</string>
-    <string name="device_link_consent">Choose which calendars your computer can read and change. These choices are separate from the calendars shown in Sunlith.</string>
     <string name="device_link_address">Phone address</string>
-    <string name="device_link_no_network">Connect to Wi-Fi or Tailscale, then refresh.</string>
-    <string name="device_link_exported">Pairing saved. Send the file privately to your computer.</string>
-    <string name="device_link_export_error">Could not save pairing. Choose a file and try again.</string>
-    <string name="device_link_export_retry">Choose your calendars and save the pairing file again.</string>
+    <string name="device_link_no_network">Connect to Wi-Fi or Tailscale.</string>
+    <string name="device_link_export_error">Could not create the connection file. Try again.</string>
     <string name="device_link_no_share">No app can send this file.</string>
-    <string name="device_link_start">Start connection</string>
     <string name="device_link_stop">Stop connection</string>
     <string name="device_link_on">Connection on</string>
     <string name="device_link_off">Connection off</string>
@@ -32,7 +27,7 @@
     <string name="device_link_not_paired">Not paired</string>
     <string name="device_link_last_request">Last successful request</string>
     <string name="device_link_no_contact">None recorded yet</string>
-    <string name="device_link_details_help">Listening does not confirm computer access. VPN status is based on the phone’s address.</string>
+    <string name="device_link_details_help">Connection on means this phone is accepting requests. Your computer may still be disconnected. VPN status is based on this phone’s address.</string>
     <string name="device_link_history_help">Latest 100 successful computer changes, saved only on this phone. Earlier changes and manual edits are not included. This list is a record, not an undo tool.</string>
     <string name="device_link_history_empty">No computer changes recorded yet.</string>
     <string name="device_link_history_clear">Clear history</string>
@@ -47,4 +42,11 @@
     <string name="device_link_field_time">Date and time</string>
     <string name="device_link_field_recurrence">Repeat</string>
     <string name="device_link_field_reminders">Reminders</string>
+    <string name="device_link_calendar_required">Allow calendar access before starting the computer connection.</string>
+    <string name="device_link_start_error">The computer connection could not start. Open Sunlith and try again.</string>
+    <string name="device_link_bind_error">The computer connection could not open port 39393. Another app may be using it.</string>
+    <string name="connection_tailscale">Tailscale / VPN</string>
+    <string name="connection_tailscale_detected">VPN address detected</string>
+    <string name="connection_tailscale_missing">Not detected</string>
+    <string name="connection_tailscale_checking">Checking…</string>
 </resources>

@@ -1,17 +1,9 @@
 package io.github.sunsind.sunlith.device
 
-import com.fasterxml.jackson.core.JsonFactory
-import com.fasterxml.jackson.core.JsonFactoryBuilder
 import com.fasterxml.jackson.core.JsonGenerator
-import com.fasterxml.jackson.core.JsonParser
-import com.fasterxml.jackson.core.JsonToken
-import com.fasterxml.jackson.core.StreamReadConstraints
-import com.fasterxml.jackson.core.StreamReadFeature
+import io.github.sunsind.sunlith.system.parseStrictJson
+import io.github.sunsind.sunlith.system.strictJsonFactory
 import java.io.ByteArrayOutputStream
-import java.io.IOException
-import java.nio.ByteBuffer
-import java.nio.charset.CharacterCodingException
-import java.nio.charset.CodingErrorAction
 
 internal data class ToolCall(val tool: String, val arguments: Map<String, Any?>)
 
@@ -19,12 +11,7 @@ internal object DeviceLinkJson {
     const val MAX_DEPTH = 12
     const val MAX_STRING = 300_000
 
-    private val factory: JsonFactory = JsonFactoryBuilder()
-        .streamReadConstraints(StreamReadConstraints.builder()
-            .maxNestingDepth(MAX_DEPTH).maxStringLength(MAX_STRING).maxNumberLength(32).maxNameLength(128)
-            .maxDocumentLength(DeviceLinkHttp.MAX_BODY.toLong()).build())
-        .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
-        .build()
+    private val factory = strictJsonFactory(MAX_DEPTH, MAX_STRING, 128, DeviceLinkHttp.MAX_BODY.toLong())
 
     fun parseCall(body: ByteArray): ToolCall {
         val root = parse(body) as? Map<*, *> ?: throw invalid()
@@ -36,58 +23,7 @@ internal object DeviceLinkJson {
         return ToolCall(tool, arguments as Map<String, Any?>)
     }
 
-    fun parse(bytes: ByteArray): Any? {
-        val text = try {
-            Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
-                .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString()
-        } catch (_: CharacterCodingException) { throw invalid() }
-        try {
-            factory.createParser(text).use { parser ->
-                val value = read(parser, parser.nextToken() ?: throw invalid(), 1)
-                if (parser.nextToken() != null) throw invalid()
-                return value
-            }
-        } catch (_: IOException) {
-            throw invalid()
-        }
-    }
-
-    private fun read(parser: JsonParser, token: JsonToken, depth: Int): Any? = when (token) {
-        JsonToken.START_OBJECT -> {
-            if (depth > MAX_DEPTH) throw invalid()
-            val map = LinkedHashMap<String, Any?>()
-            while (true) {
-                val next = parser.nextToken() ?: throw invalid()
-                if (next == JsonToken.END_OBJECT) break
-                if (next != JsonToken.FIELD_NAME) throw invalid()
-                val name = parser.currentName() ?: throw invalid()
-                if (map.containsKey(name)) throw invalid()
-                map[name] = read(parser, parser.nextToken() ?: throw invalid(), depth + 1)
-            }
-            map
-        }
-        JsonToken.START_ARRAY -> {
-            if (depth > MAX_DEPTH) throw invalid()
-            val list = ArrayList<Any?>()
-            while (true) {
-                val next = parser.nextToken() ?: throw invalid()
-                if (next == JsonToken.END_ARRAY) break
-                if (list.size >= 10_000) throw invalid()
-                list += read(parser, next, depth + 1)
-            }
-            list
-        }
-        JsonToken.VALUE_STRING -> parser.text
-        JsonToken.VALUE_NUMBER_INT -> when (parser.numberType) {
-            JsonParser.NumberType.INT, JsonParser.NumberType.LONG -> parser.longValue
-            else -> throw invalid()
-        }
-        JsonToken.VALUE_NUMBER_FLOAT -> parser.doubleValue
-        JsonToken.VALUE_TRUE -> true
-        JsonToken.VALUE_FALSE -> false
-        JsonToken.VALUE_NULL -> null
-        else -> throw invalid()
-    }
+    fun parse(bytes: ByteArray): Any? = factory.parseStrictJson(bytes, 10_000, ::invalid)
 
     fun write(value: Any?): ByteArray {
         val output = ByteArrayOutputStream()

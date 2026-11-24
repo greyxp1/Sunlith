@@ -1,0 +1,5 @@
+<resources>
+    <string name="settings_theme">Thème</string>
+    <string name="settings_widget_shared">S’applique à tous les widgets Sunlith</string>
+    <string name="settings_version">Version</string>
+</resources>

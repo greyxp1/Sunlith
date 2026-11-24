@@ -100,8 +100,7 @@ class SchoolScheduleManager private constructor(private val context: Context) {
                     val connected = (previous ?: SchoolRecord(client.base.toString(), username.trim(), password, zone.id, destination,
                         fetched.account, UUID.randomUUID().toString(), login.token, login.expiresAt, calendarIdentity = writer.calendarIdentity(destination)))
                         .copy(password = password, token = login.token, expiresAt = login.expiresAt, term = fetched.term.name, termSource = fetched.term)
-                    store.save(connected)
-                    record = connected
+                    save(connected)
                     lastAttempt = SystemClock.elapsedRealtime()
                     val feed = withNotices(fetched, connected)
                     applyFeed(feed, false, stamp)
@@ -146,12 +145,10 @@ class SchoolScheduleManager private constructor(private val context: Context) {
                 val changes = SchoolDiff.changes(current.baseline, feed.items, today)
                 withContext(NonCancellable) {
                     if (generation.get() != stamp) throw CancellationException()
-                    stage = Stage.CALENDAR
-                    val ledger = try { writer.commitSteps(current, plan) { store.save(it); record = it } }
-                        finally { AppRefresh.refresh(context) }
+                    val ledger = commitCalendar(current, plan)
                     // A notice refresh does not advance the agenda's successful-sync time or term identity.
                     val next = current.copy(ledger = ledger, baseline = feed.items, journal = null)
-                    store.save(next); record = next
+                    save(next)
                     notifier.changes(next, changes)
                     publish()
                 }
@@ -213,12 +210,10 @@ class SchoolScheduleManager private constructor(private val context: Context) {
             ready.await()
             mutex.withLock {
                 val current = record ?: return@withLock
-                try {
-                    val next = current.copy(notifications = transform(current.notifications))
-                    store.save(next); record = next
-                    if (!next.notifications.enabled) notifier.clearAll()
-                    mutableState.value = mutableState.value.copy(notifications = next.notifications)
-                } catch (_: Exception) { mutableState.value = mutableState.value.copy(error = SchoolError.STORAGE) }
+                val next = current.copy(notifications = transform(current.notifications))
+                save(next)
+                mutableState.value = mutableState.value.copy(notifications = next.notifications)
+                if (!next.notifications.enabled) notifier.clearAll()
             }
         }.await()
     }
@@ -235,7 +230,7 @@ class SchoolScheduleManager private constructor(private val context: Context) {
                     withContext(NonCancellable) {
                         stage = Stage.CALENDAR
                         val disconnecting = current.copy(disconnecting = if (removeSchoolEvents) "remove" else "release")
-                        store.save(disconnecting); record = disconnecting
+                        save(disconnecting)
                         finishDisconnect(disconnecting)
                     }
                 } } finally { disconnectRequested = false }
@@ -275,7 +270,7 @@ class SchoolScheduleManager private constructor(private val context: Context) {
         val zone = ZoneId.of(current.zone)
         val feed = client.signedIn(current.token.takeIf { current.expiresAt > System.currentTimeMillis() + 60_000 }, current.username, current.password, {
             current = current.copy(token = it.token, expiresAt = it.expiresAt)
-            store.save(current); record = current
+            save(current)
         }) { token -> client.fetch(token, zone, current.baseline, current.initialized, current.termKey) }
         if (feed.account != current.account) throw SchoolFailure(SchoolError.SIGN_IN)
         withNotices(feed, current)
@@ -312,24 +307,35 @@ class SchoolScheduleManager private constructor(private val context: Context) {
         withContext(NonCancellable) {
             if (generation.get() != stamp) throw CancellationException()
             val summary = writer.summary(current, plan)
-            val ledger = if (summary.added + summary.updated + summary.removed + summary.linked == 0) plan.after else {
-                stage = Stage.CALENDAR
-                try { writer.commitSteps(current, plan) { store.save(it); record = it } } finally { AppRefresh.refresh(context) }
-            }
+            val ledger = if (summary.added + summary.updated + summary.removed + summary.linked == 0) plan.after
+                else commitCalendar(current, plan)
             val next = current.copy(term = feed.term.name, termKey = feed.term.key, termSource = feed.term, ledger = ledger, baseline = feed.items, lastSuccess = plan.at, lastFailure = null, journal = null, pendingReview = null)
-            store.save(next); record = next; pending = null; pendingPlan = null
+            save(next)
+            pending = null
+            pendingPlan = null
             notifier.clearFailure()
             notifier.clearReview()
             notifier.changes(next, changes)
             publish()
         }
     }
+    private fun save(next: SchoolRecord) {
+        store.save(next)
+        record = next
+    }
+
+    private fun commitCalendar(current: SchoolRecord, plan: SchoolJournal): List<SchoolOwned> {
+        stage = Stage.CALENDAR
+        return try { writer.commitSteps(current, plan, ::save) } finally { AppRefresh.refresh(context) }
+    }
+
     private suspend fun prepareRecord(feed: SchoolFeed): SchoolRecord = withContext(NonCancellable) {
         val current = record ?: throw SchoolFailure(SchoolError.SIGN_IN)
         stage = Stage.PRUNE
         val ledger = writer.pruneHistory(current, feed.term, LocalDate.now(ZoneId.of(current.zone)))
         if (ledger == current.ledger) current else current.copy(ledger = ledger).also {
-            store.save(it); record = it; AppRefresh.refresh(context)
+            save(it)
+            AppRefresh.refresh(context)
         }
     }
     private suspend fun showPending(feed: SchoolFeed, plan: SchoolJournal? = null) {
@@ -340,7 +346,7 @@ class SchoolScheduleManager private constructor(private val context: Context) {
         val newReview = current.pendingReview != fingerprint
         if (newReview || current.lastFailure != null) {
             val next = current.copy(pendingReview = fingerprint, lastFailure = null)
-            store.save(next); record = next
+            save(next)
             if (newReview && current.initialized) notifier.review(next, SchoolDiff.changes(
                 current.baseline.filter { !it.date.isBefore(feed.term.start) && !it.date.isAfter(feed.term.end) },
                 feed.items, LocalDate.now(ZoneId.of(current.zone)),
@@ -363,7 +369,7 @@ class SchoolScheduleManager private constructor(private val context: Context) {
             journal.complete -> current.copy(ledger = adopted, baseline = journal.baseline, termKey = journal.termKey, term = journal.termName.ifBlank { current.term }, lastSuccess = journal.at, journal = null, lastFailure = null, pendingReview = null)
             else -> current.copy(ledger = adopted, journal = null)
         }
-        store.save(next); record = next
+        save(next)
         if (adopted != null) { if (journal.complete) notifier.clearReview(); AppRefresh.refresh(context) }
     }
     /** Completes a disconnect saved in [current], so an interrupted one finishes on the next start. */
@@ -401,7 +407,7 @@ class SchoolScheduleManager private constructor(private val context: Context) {
             val alert = lasting && (!streak || !current.failureNotified || (signIn && current.lastFailure != reason.name))
             val next = current.copy(lastFailure = reason.name, failureNotified = (streak && current.failureNotified) || alert)
             try {
-                if (next != current) { store.save(next); record = next }
+                if (next != current) save(next)
                 if (alert) notifier.failure(next, reason)
             } catch (_: Exception) { }
         }

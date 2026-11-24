@@ -29,7 +29,7 @@ internal fun schoolError(e: Exception, otherwise: SchoolError): SchoolError = wh
 
 internal fun schoolRequire(value: Boolean) { if (!value) throw SchoolFailure(SchoolError.INVALID_DATA) }
 internal fun schoolHash(value: String): String = MessageDigest.getInstance("SHA-256")
-    .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    .digest(value.toByteArray(Charsets.UTF_8)).toHexString()
 
 internal data class SchoolTerm(val code: String, val name: String, val start: LocalDate, val end: LocalDate) {
     init { schoolRequire(code.isNotBlank() && !end.isBefore(start) && ChronoUnit.DAYS.between(start, end) < 366) }
@@ -91,11 +91,12 @@ internal object SchoolSource {
     fun merge(agenda: List<SchoolItem>, absences: List<SchoolItem>, term: SchoolTerm): List<SchoolItem> {
         val unique = absences.groupBy { it.id }.map { (_, rows) -> schoolRequire(rows.distinct().size == 1); rows.first() }
         val result = agenda.toMutableList()
+        val byClass = agenda.withIndex().filter { it.value.kind == "01" }.groupBy { it.value.classMatch }
         unique.filter { !it.date.isBefore(term.start) && !it.date.isAfter(term.end) }.forEach { absence ->
-            val matches = result.indices.filter { index -> result[index].kind == "01" && absence.classKey.isNotBlank() && result[index].classMatch == absence.classMatch }
+            val matches = if (absence.classKey.isBlank()) emptyList() else byClass[absence.classMatch].orEmpty()
             schoolRequire(matches.size <= 1)
             if (matches.size == 1) {
-                val index = matches.single()
+                val index = matches.single().index
                 result[index] = result[index].copy(teacherAbsent = true, notes = (result[index].notes + absence.notes).distinct())
             } else result += absence.copy(id = "absence:${absence.id}", kind = "absence")
         }

@@ -13,7 +13,7 @@ import android.os.Handler
 import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
-import io.github.sunsind.sunlith.MainActivity
+import io.github.sunsind.sunlith.calendarTaskIntent
 import io.github.sunsind.sunlith.R
 import java.util.concurrent.Executors
 
@@ -41,7 +41,7 @@ class DeviceLinkService : Service() {
             ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(),
                 if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE else 0)
         } catch (_: Exception) {
-            DeviceLink.update(DeviceLinkState(false, DeviceLink.START_FAILED))
+            DeviceLink.update(DeviceLinkState(false, R.string.device_link_start_error))
             stopSelfResult(startId)
             return START_NOT_STICKY
         }
@@ -63,7 +63,7 @@ class DeviceLinkService : Service() {
                 DeviceLink.update(DeviceLinkState(true, null))
             } catch (_: Exception) {
                 created.stop()
-                DeviceLink.update(DeviceLinkState(false, DeviceLink.BIND_FAILED))
+                DeviceLink.update(DeviceLinkState(false, R.string.device_link_bind_error))
                 Handler(Looper.getMainLooper()).post { stopSelfResult(startId) }
             }
         }
@@ -85,8 +85,7 @@ class DeviceLinkService : Service() {
             NotificationChannel(CHANNEL, getString(R.string.device_link_channel_title), NotificationManager.IMPORTANCE_LOW))
         val stop = PendingIntent.getService(this, 1, Intent(this, DeviceLinkService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val open = PendingIntent.getActivity(this, 2, Intent(this, MainActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val open = PendingIntent.getActivity(this, 2, calendarTaskIntent(this), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(getString(R.string.device_link_notification_title))

@@ -3,7 +3,6 @@ package io.github.sunsind.sunlith
 import android.Manifest
 import android.content.Intent
 import android.content.ComponentName
-import android.content.pm.PackageManager
 import android.database.ContentObserver
 import android.os.Bundle
 import android.os.Handler
@@ -48,6 +47,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
+import io.github.sunsind.sunlith.system.hasPermission
 
 class MainActivity : ComponentActivity() {
     private val viewModel: SunlithViewModel by viewModels()
@@ -59,35 +59,24 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         lifecycleScope.launch(Dispatchers.IO) { LauncherIcons.reconcile(applicationContext) }
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                LauncherIcons.reopenRequests(applicationContext).collect { pending ->
-                    if (pending && LauncherIcons.consumeReopen(applicationContext)) {
-                        startActivity(Intent.makeRestartActivityTask(ComponentName(this@MainActivity, MainActivity::class.java)))
-                        finish()
-                    }
-                }
-            }
-        }
+        observeWindowForeground()
         if (savedInstanceState == null) handleIntent(intent)
         else {
             val restored = restoreCalendarHandoff(savedInstanceState.getBundle(STATE_HANDOFF))
-            if (savedInstanceState.getBoolean(STATE_DELIVERED) && (viewModel.editor != null || viewModel.importUi != null)) activeHandoff = restored
+            if (savedInstanceState.getBoolean(STATE_DELIVERED) && viewModel.editor != null) activeHandoff = restored
             else pendingHandoff = restored
         }
         setContent {
             val ready = viewModel.linksReady
             LaunchedEffect(ready) { if (ready) viewModel.deliverPendingLink() }
             val editorOpen = Screen.Editor in viewModel.stack
-            LaunchedEffect(pendingHandoff, ready, editorOpen, viewModel.importUi != null) {
+            LaunchedEffect(pendingHandoff, ready, editorOpen) {
                 val item = pendingHandoff
-                if (item != null && ready && !editorOpen && viewModel.importUi == null) {
+                if (item != null && ready && !editorOpen) {
                     pendingHandoff = null
                     when (item) {
                         is CalendarHandoff.CalendarFile -> {
-                            viewModel.open(Screen.Settings)
-                            viewModel.startImport(item.uri)
-                            activeHandoff = item
+                            SettingsActivity.openImport(this@MainActivity, item.uri)
                         }
                         is CalendarHandoff.Event -> {
                             val zone = ZoneId.systemDefault()
@@ -126,7 +115,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         val inReview = when (val item = activeHandoff) {
-            is CalendarHandoff.CalendarFile -> item.takeIf { viewModel.importUi?.uri == item.uri && viewModel.importUi?.report == null }
             is CalendarHandoff.Event -> item.takeIf {
                 val draft = viewModel.editor?.originalDraft
                 Screen.Editor in viewModel.stack && draft != null && draft.id == null &&
@@ -146,7 +134,6 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         registerObserver()
-        SchoolScheduleManager.get(applicationContext).onForeground()
     }
 
     override fun onResume() {
@@ -156,7 +143,6 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
-        SchoolScheduleManager.get(applicationContext).onBackground()
         observer?.let { runCatching { contentResolver.unregisterContentObserver(it) } }
         observer = null
         super.onStop()
@@ -164,7 +150,7 @@ class MainActivity : ComponentActivity() {
 
     private fun registerObserver() {
         if (observer != null) return
-        if (checkSelfPermission(Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) return
+        if (!hasPermission(Manifest.permission.READ_CALENDAR)) return
         val next = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean) = viewModel.onProviderChanged()
         }
@@ -223,5 +209,25 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_SCHOOL_DATE = "school_event_date"
         const val EXTRA_SCHOOL_SETTINGS = "school_open_settings"
         const val EXTRA_SCHOOL_MESSAGES = "school_open_messages"
+    }
+}
+
+
+internal fun ComponentActivity.observeWindowForeground() {
+    lifecycleScope.launch {
+        repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            val school = SchoolScheduleManager.get(applicationContext)
+            school.onForeground()
+            try {
+                LauncherIcons.reopenRequests(applicationContext).collect { pending ->
+                    if (pending && LauncherIcons.consumeReopen(applicationContext)) {
+                        startActivity(Intent.makeRestartActivityTask(ComponentName(this@observeWindowForeground, MainActivity::class.java)))
+                        finish()
+                    }
+                }
+            } finally {
+                school.onBackground()
+            }
+        }
     }
 }

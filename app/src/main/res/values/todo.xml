@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="todo_title">To-do</string>
-    <string name="todo_actions">More actions</string>
     <string name="todo_tag">To-do</string>
     <string name="todo_tag_hint">Add to your list when this event starts.</string>
     <string name="todo_tag_series_hint">Add each occurrence to your list when it starts.</string>

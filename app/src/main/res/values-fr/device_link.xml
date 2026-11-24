@@ -1,16 +1,11 @@
 <resources>
     <string name="device_link_title">Connexion à l’ordinateur</string>
-    <string name="action_refresh">Actualiser</string>
-    <string name="device_link_lead">Gérez Sunlith directement par Wi-Fi ou Tailscale.</string>
+    <string name="device_link_allow_access">Autoriser l’accès de l’ordinateur</string>
     <string name="device_link_access">Calendriers partagés avec votre ordinateur</string>
-    <string name="device_link_consent">Choisissez les calendriers que votre ordinateur peut lire et modifier. Ce choix est distinct des calendriers affichés dans Sunlith.</string>
     <string name="device_link_address">Adresse du téléphone</string>
-    <string name="device_link_no_network">Connectez-vous au Wi-Fi ou à Tailscale, puis actualisez.</string>
-    <string name="device_link_exported">Jumelage enregistré. Envoyez le fichier à votre ordinateur en privé.</string>
-    <string name="device_link_export_error">Impossible d’enregistrer le jumelage. Choisissez un fichier et réessayez.</string>
-    <string name="device_link_export_retry">Choisissez vos calendriers et enregistrez de nouveau le fichier de jumelage.</string>
+    <string name="device_link_no_network">Connectez-vous au Wi-Fi ou à Tailscale.</string>
+    <string name="device_link_export_error">Impossible de créer le fichier de connexion. Réessayez.</string>
     <string name="device_link_no_share">Aucune application ne peut envoyer ce fichier.</string>
-    <string name="device_link_start">Démarrer la connexion</string>
     <string name="device_link_stop">Arrêter la connexion</string>
     <string name="device_link_on">Connexion active</string>
     <string name="device_link_off">Connexion inactive</string>
@@ -32,7 +27,7 @@
     <string name="device_link_not_paired">Non jumelé</string>
     <string name="device_link_last_request">Dernière requête réussie</string>
     <string name="device_link_no_contact">Aucune requête enregistrée</string>
-    <string name="device_link_details_help">L’écoute ne confirme pas l’accès de l’ordinateur. L’état VPN dépend de l’adresse du téléphone.</string>
+    <string name="device_link_details_help">Une connexion active signifie que ce téléphone accepte les demandes. Votre ordinateur peut quand même être déconnecté. L’état du VPN est basé sur l’adresse du téléphone.</string>
     <string name="device_link_history_help">Les 100 dernières modifications réussies de l’ordinateur, conservées seulement sur ce téléphone. Les modifications antérieures et manuelles sont exclues. Cet historique ne permet pas d’annuler les modifications.</string>
     <string name="device_link_history_empty">Aucune modification de l’ordinateur enregistrée.</string>
     <string name="device_link_history_clear">Effacer l’historique</string>
@@ -47,4 +42,11 @@
     <string name="device_link_field_time">Date et heure</string>
     <string name="device_link_field_recurrence">Répétition</string>
     <string name="device_link_field_reminders">Rappels</string>
+    <string name="device_link_calendar_required">Autorisez l’accès aux calendriers avant de démarrer la connexion à l’ordinateur.</string>
+    <string name="device_link_start_error">La connexion à l’ordinateur n’a pas pu démarrer. Ouvrez Sunlith et réessayez.</string>
+    <string name="device_link_bind_error">La connexion à l’ordinateur n’a pas pu ouvrir le port 39393. Une autre application l’utilise peut-être.</string>
+    <string name="connection_tailscale">Tailscale / VPN</string>
+    <string name="connection_tailscale_detected">Adresse VPN détectée</string>
+    <string name="connection_tailscale_missing">Non détecté</string>
+    <string name="connection_tailscale_checking">Vérification…</string>
 </resources>

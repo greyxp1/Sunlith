@@ -1,47 +1,56 @@
 package io.github.sunsind.sunlith.ui
 
-import android.Manifest
 import android.app.Application
 import android.content.Context
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.Snapshot
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import io.github.sunsind.sunlith.R
+import io.github.sunsind.sunlith.SettingsActivity.Page as SettingsPage
 import io.github.sunsind.sunlith.data.CalendarEvent
-import io.github.sunsind.sunlith.data.TodoItem
-import io.github.sunsind.sunlith.data.TodoMarker
-import io.github.sunsind.sunlith.system.TodoStore
-import io.github.sunsind.sunlith.data.projectSchoolEvents
 import io.github.sunsind.sunlith.data.CalendarRepository
 import io.github.sunsind.sunlith.data.DeviceCalendar
-import io.github.sunsind.sunlith.data.EventDraft
 import io.github.sunsind.sunlith.data.EditBlockReason
+import io.github.sunsind.sunlith.data.EventDraft
 import io.github.sunsind.sunlith.data.IcsTransfer
 import io.github.sunsind.sunlith.data.ImportPreview
 import io.github.sunsind.sunlith.data.ImportReport
+import io.github.sunsind.sunlith.data.TodoItem
+import io.github.sunsind.sunlith.data.TodoMarker
+import io.github.sunsind.sunlith.data.indexByDay
+import io.github.sunsind.sunlith.data.key
+import io.github.sunsind.sunlith.data.projectSchoolEvents
+import io.github.sunsind.sunlith.data.span
 import io.github.sunsind.sunlith.system.AppRefresh
 import io.github.sunsind.sunlith.system.LauncherIcons
 import io.github.sunsind.sunlith.system.SettingsStore
+import io.github.sunsind.sunlith.system.TodoStore
 import io.github.sunsind.sunlith.system.visibleCalendarIds
-import java.io.FileNotFoundException
+import io.github.sunsind.sunlith.ui.calendar.SearchMorph
+import io.github.sunsind.sunlith.ui.calendar.assignCourseSlots
+import io.github.sunsind.sunlith.ui.event.EditorState
+import io.github.sunsind.sunlith.widget.AgendaWidgetReceiver
 import java.io.File
+import java.io.FileNotFoundException
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.YearMonth
 import java.time.ZoneId
 import java.util.TimeZone
+import kotlin.properties.ReadWriteProperty
+import kotlin.reflect.KMutableProperty0
+import kotlin.reflect.KProperty
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -50,101 +59,60 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.properties.ReadWriteProperty
-import kotlin.reflect.KMutableProperty0
-import kotlin.reflect.KProperty
+import io.github.sunsind.sunlith.system.hasCalendarAccess
+import io.github.sunsind.sunlith.system.needsNotificationPermission
 
 enum class ViewMode { Month, Week, Day }
 
-private val DAY_LAYOUT_CHOICES = listOf("cards", "timeline")
-
-/** A Day opened from the Month grid shows only that date as a list or all hours. The list is the default. */
-private fun drilldownLayoutOrDefault(saved: String?): String = saved?.takeIf { it in DAY_LAYOUT_CHOICES } ?: "cards"
-
-/** The calendar position kept across process recreation: the view, the date and how Day was opened. */
-internal data class CalendarPosition(
-    val viewMode: ViewMode,
+private data class ViewPosition(
     val selected: LocalDate,
-    val selectedWasToday: Boolean,
-    val dayParent: Pair<ViewMode, LocalDate>?,
-    val fromMonthGrid: Boolean,
-    val viewportStart: LocalDate?,
+    val first: LocalDate? = null,
+    val last: LocalDate? = null,
+)
+
+private data class CalendarPosition(
+    val viewMode: ViewMode,
+    val positions: Map<ViewMode, ViewPosition>,
+    val dayParent: ViewMode?,
 ) {
-    fun toBundle(): Bundle = Bundle().apply {
+    fun toBundle(today: LocalDate): Bundle = Bundle().apply {
         putString("view", viewMode.name)
-        putLong("selected", selected.toEpochDay())
-        putBoolean("today", selectedWasToday)
-        dayParent?.let { putString("parent_view", it.first.name); putLong("parent_date", it.second.toEpochDay()) }
-        putBoolean("grid", fromMonthGrid)
-        viewportStart?.let { putLong("viewport", it.toEpochDay()) }
-    }
-
-    /** The date to show now: a saved Today follows the current date, so returning the next morning shows that day. */
-    fun selectedOn(today: LocalDate): LocalDate = if (selectedWasToday) today else selected
-
-    fun viewportOn(today: LocalDate): LocalDate? =
-        viewportStart.takeUnless { selectedWasToday && selected != today }
-
-    companion object {
-        fun from(bundle: Bundle?): CalendarPosition? {
-            if (bundle == null || !bundle.containsKey("view") || !bundle.containsKey("selected")) return null
-            return runCatching {
-                fun date(key: String) = LocalDate.ofEpochDay(bundle.getLong(key)).takeIf { it.year in 1900..2100 }
-                val mode = ViewMode.valueOf(requireNotNull(bundle.getString("view")))
-                val parentMode = bundle.getString("parent_view")?.let(ViewMode::valueOf)
-                val parent = if (parentMode != null && bundle.containsKey("parent_date")) date("parent_date")?.let { parentMode to it } else null
-                CalendarPosition(mode, requireNotNull(date("selected")), bundle.getBoolean("today"), parent,
-                    bundle.getBoolean("grid") && parent != null, if (bundle.containsKey("viewport")) date("viewport") else null)
-            }.getOrNull()
+        putString("parent_view", dayParent?.name)
+        positions.forEach { (mode, position) ->
+            putBundle(mode.name, Bundle().apply {
+                putLong("selected", position.selected.toEpochDay())
+                putBoolean("today", position.selected == today)
+                position.first?.let { putLong("viewport", it.toEpochDay()) }
+                position.last?.let { putLong("viewport_end", it.toEpochDay()) }
+            })
         }
     }
-}
-
-/**
- * Layouts offered by long-pressing a view tab, in display order. Day keeps the retired compact schedule out. The
- * continuous Week also offers its column counts ([SettingsStore.VISIBLE_DAY_CHOICES]).
- */
-internal fun layoutChoices(mode: ViewMode): List<String> = when (mode) {
-    ViewMode.Month -> listOf("split", "full")
-    ViewMode.Week -> listOf("list", "continuous")
-    ViewMode.Day -> DAY_LAYOUT_CHOICES
-}
-
-/** The calendar position kept across process recreation: the view, the date and how Day was opened. */
-internal data class CalendarPosition(
-    val viewMode: ViewMode,
-    val selected: LocalDate,
-    val selectedWasToday: Boolean,
-    val dayParent: Pair<ViewMode, LocalDate>?,
-    val fromMonthGrid: Boolean,
-    val viewportStart: LocalDate?,
-) {
-    fun toBundle(): Bundle = Bundle().apply {
-        putString("view", viewMode.name)
-        putLong("selected", selected.toEpochDay())
-        putBoolean("today", selectedWasToday)
-        dayParent?.let { putString("parent_view", it.first.name); putLong("parent_date", it.second.toEpochDay()) }
-        putBoolean("grid", fromMonthGrid)
-        viewportStart?.let { putLong("viewport", it.toEpochDay()) }
-    }
-
-    /** The date to show now: a saved Today follows the current date, so returning the next morning shows that day. */
-    fun selectedOn(today: LocalDate): LocalDate = if (selectedWasToday) today else selected
-
-    fun viewportOn(today: LocalDate): LocalDate? =
-        viewportStart.takeUnless { selectedWasToday && selected != today }
 
     companion object {
-        fun from(bundle: Bundle?): CalendarPosition? {
-            if (bundle == null || !bundle.containsKey("view") || !bundle.containsKey("selected")) return null
-            return runCatching {
-                fun date(key: String) = LocalDate.ofEpochDay(bundle.getLong(key)).takeIf { it.year in 1900..2100 }
-                val mode = ViewMode.valueOf(requireNotNull(bundle.getString("view")))
-                val parentMode = bundle.getString("parent_view")?.let(ViewMode::valueOf)
-                val parent = if (parentMode != null && bundle.containsKey("parent_date")) date("parent_date")?.let { parentMode to it } else null
-                CalendarPosition(mode, requireNotNull(date("selected")), bundle.getBoolean("today"), parent,
-                    bundle.getBoolean("grid") && parent != null, if (bundle.containsKey("viewport")) date("viewport") else null)
-            }.getOrNull()
+        fun from(bundle: Bundle?, today: LocalDate): CalendarPosition? {
+            if (bundle == null) return null
+            fun Bundle.date(key: String) = if (containsKey(key)) {
+                runCatching { LocalDate.ofEpochDay(getLong(key)).takeIf { it.year in 1900..2100 } }.getOrNull()
+            } else null
+            fun Bundle.position(): ViewPosition? {
+                val selected = date("selected") ?: return null
+                if (getBoolean("today") && selected != today) return ViewPosition(today)
+                return ViewPosition(selected, date("viewport"), date("viewport_end"))
+            }
+            fun mode(key: String) = ViewMode.entries.firstOrNull { it.name == bundle.getString(key) }
+            val view = mode("view") ?: return null
+            val parent = mode("parent_view")
+            val positions = ViewMode.entries.mapNotNull { mode ->
+                bundle.getBundle(mode.name)?.position()?.let { mode to it }
+            }.toMap().toMutableMap()
+            // Older saved state kept only the active date and the view from which Day was opened.
+            if (positions.isEmpty()) {
+                bundle.position()?.let { positions[view] = it }
+                if (parent != null && parent != view) bundle.date("parent_date")?.let {
+                    positions[parent] = ViewPosition(it, bundle.date("parent_viewport"))
+                }
+            }
+            return CalendarPosition(view, positions, parent)
         }
     }
 }
@@ -152,12 +120,6 @@ internal data class CalendarPosition(
 sealed interface Screen {
     data object Search : Screen
     data object Todo : Screen
-    data object Settings : Screen
-    data object WidgetSettings : Screen
-    data object Calendars : Screen
-    data object SchoolSchedule : Screen
-    data object SchoolMessages : Screen
-    data object DeviceLink : Screen
     data object Editor : Screen
     data class Details(val event: CalendarEvent) : Screen
 }
@@ -173,9 +135,16 @@ data class ImportUi(
     val error: String? = null,
 )
 
+internal data class EventRanges(val agenda: ClosedRange<LocalDate>, val grid: ClosedRange<LocalDate>) {
+    fun covers(range: ClosedRange<LocalDate>) = agenda.covers(range) || grid.covers(range)
+}
+
+private fun ClosedRange<LocalDate>.covers(other: ClosedRange<LocalDate>) =
+    other.start >= start && other.endInclusive <= endInclusive
+
 class SunlithViewModel(app: Application, private val savedState: SavedStateHandle) : AndroidViewModel(app) {
     private val context: Context get() = getApplication()
-    private val restored = CalendarPosition.from(savedState.get<Bundle>(KEY_POSITION))
+    private val restored = CalendarPosition.from(savedState.get<Bundle>(KEY_POSITION), LocalDate.now())
     private val repo = CalendarRepository(app)
     private val transfer = IcsTransfer(repo)
     private val settings = SettingsStore(app)
@@ -223,18 +192,12 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
     fun setEventTodo(event: CalendarEvent, enabled: Boolean) {
         if (event.id in todoSavingIds) return
         todoSavingIds = todoSavingIds + event.id
-        viewModelScope.launch {
-            try {
-                withContext(Dispatchers.IO) { repo.setTodo(event.id, enabled) }
-                todoRevision++
-                reload()
-            } catch (c: CancellationException) { throw c }
-            catch (e: Exception) { message(e.userMessage()) }
-            finally { todoSavingIds = todoSavingIds - event.id }
+        launchAction({ todoSavingIds = todoSavingIds - event.id }) {
+            withContext(Dispatchers.IO) { repo.setTodo(event.id, enabled) }
+            todoRevision++
+            reload()
         }
     }
-    private val uiPrefs = app.getSharedPreferences("sunlith_ui", Context.MODE_PRIVATE)
-
     var launcherIcon by mutableStateOf(LauncherIcons.saved(context)); private set
     var launcherIconBusy by mutableStateOf(false); private set
 
@@ -250,21 +213,20 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
         }
     }
 
-    var hasPermission by mutableStateOf(calendarGranted()); private set
-    var notificationsGranted by mutableStateOf(notificationGranted()); private set
-    var notificationStepDone by mutableStateOf(uiPrefs.getBoolean(KEY_NOTIFY_ASKED, false)); private set
-    var aiIntroDone by mutableStateOf(uiPrefs.getBoolean("ai_intro_done", false)); private set
-    var layoutSetupDone by mutableStateOf(uiPrefs.getBoolean("layout_setup_done", aiIntroDone)); private set
+    var hasPermission by mutableStateOf(context.hasCalendarAccess()); private set
+    var notificationsGranted by mutableStateOf(!context.needsNotificationPermission()); private set
+    var notificationStepDone by mutableStateOf(settings.notificationStepDone); private set
+    var aiIntroDone by mutableStateOf(settings.aiIntroDone); private set
 
     var calendars by mutableStateOf(emptyList<DeviceCalendar>()); private set
     var activeIds by mutableStateOf(emptySet<Long>()); private set
-    var events by mutableStateOf(emptyList<CalendarEvent>()); private set
-    var eventsByDay by mutableStateOf(emptyMap<LocalDate, List<CalendarEvent>>()); private set
-    var loadedFrom by mutableStateOf<LocalDate?>(null); private set
-    var loadedTo by mutableStateOf<LocalDate?>(null); private set
-    var gridLoadedFrom by mutableStateOf<LocalDate?>(null); private set
-    var gridLoadedTo by mutableStateOf<LocalDate?>(null); private set
-    var extendingAgenda by mutableStateOf(false); private set
+    private val eventWindows = mutableStateMapOf<ViewMode, LoadedEvents>()
+    val events: List<CalendarEvent> get() = eventWindows[viewMode]?.snapshot?.events.orEmpty()
+    val eventsByDay: Map<LocalDate, List<CalendarEvent>> get() = eventsByDayFor(viewMode)
+
+    private fun eventWindowFor(mode: ViewMode) = eventWindows[mode] ?: eventWindows[viewMode]
+    internal fun eventsByDayFor(mode: ViewMode) = eventWindowFor(mode)?.snapshot?.byDay.orEmpty()
+    internal fun loadedRangesFor(mode: ViewMode) = eventWindowFor(mode)?.ranges
     var loaded by mutableStateOf(false); private set
     var loadingEvents by mutableStateOf(false); private set
     var loadError by mutableStateOf<String?>(null); private set
@@ -282,73 +244,34 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
 
     private fun <T> setting(pref: KMutableProperty0<T>, onChange: () -> Unit = {}) = Setting(pref, onChange)
 
-    var themeMode by setting(settings::themeMode) { refreshApp() }
-    var weekStartsMonday by setting(settings::weekStartsMonday) { refreshApp(); ensureLoaded() }
+    var themeMode by setting(settings::themeMode)
     var remindersEnabled by setting(settings::remindersEnabled) { refreshApp() }
-    private val opacity = setting(settings::widgetOpacity) { refreshApp() }
-    val widgetOpacity by opacity
-    var widgetDays by setting(settings::widgetDays) { refreshApp() }
-    var widgetShowCalendarName by setting(settings::widgetShowCalendarName) { refreshApp() }
-    var widgetShowEmptyDays by setting(settings::widgetShowEmptyDays) { refreshApp() }
-    var agendaDisplay by setting(settings::agendaDisplay)
-    var collapseCalendarOnScroll by setting(settings::collapseCalendarOnScroll)
-    var startView: String by setting(settings::startView) { if (startView == START_LAST) uiPrefs.edit().putString(KEY_VIEW, viewMode.name).apply() }
-    var navigationAnimation by setting(settings::navigationAnimation)
-    var materialYou by setting(settings::materialYou)
-    var showNavigationArrows by setting(settings::showNavigationArrows)
-    var swipeNavigation by setting(settings::swipeNavigation)
-    var keepSelectedDate by setting(settings::keepSelectedDate)
-    var agendaRange by setting(settings::agendaRange) { targetWindow = initialWindow(); reload() }
-    var monthLayout by setting(settings::monthLayout) { targetWindow = initialWindow(); ensureLoaded() }
-    var weekLayout by setting(settings::weekLayout) {
-        if (continuousTimeline()) { timelineViewportStart = selectedDate; timelineViewportEnd = selectedDate }
-        targetWindow = initialWindow()
-        ensureLoaded()
-    }
-    var groupEmptyHours by setting(settings::groupEmptyHours)
-    var timelineViewportStart by mutableStateOf<LocalDate?>(null); private set
-    var timelineViewportEnd by mutableStateOf<LocalDate?>(null); private set
+    var widgetDays by setting(settings::widgetDays) { refreshWidgets() }
+    var widgetShowCalendarName by setting(settings::widgetShowCalendarName) { refreshWidgets() }
+    var widgetShowEmptyDays by setting(settings::widgetShowEmptyDays) { refreshWidgets() }
+    val timelineViewportStart: LocalDate? get() = timelineStartFor(viewMode)
+    private val timelineViewportEnd: LocalDate? get() = positionFor(viewMode).last
     var timelineNavigationRequest by mutableStateOf(0); private set
     var handledTimelineNavigation by mutableStateOf(0); private set
-    var dayLayout by setting(settings::dayLayout) {
-        if (viewMode == ViewMode.Day) { pagedTimelineTodayHandled.intValue = todayRequest; dayFocusRequest++ }
-        targetWindow = initialWindow()
-        ensureLoaded()
-    }
     var weekTimelineZoom by setting(settings::weekTimelineZoom)
-    var visibleWeekDays by setting(settings::visibleWeekDays) { ensureLoaded() }
-    var rollingFiveDays by setting(settings::rollingFiveDays) { ensureLoaded() }
-    var weekHeaderSelection by setting(settings::weekHeaderSelection)
+    var visibleWeekDays by setting(settings::visibleWeekDays)
+    var calendarExpanded by setting(settings::calendarExpanded); private set
     var courseColorSlots by setting(settings::courseColorSlots); private set
 
     var today by mutableStateOf(LocalDate.now()); private set
-    var selectedDate by mutableStateOf(restored?.selectedOn(today) ?: today); private set
+    private val positions = mutableStateMapOf<ViewMode, ViewPosition>().apply { putAll(restored?.positions.orEmpty()) }
+    private fun positionFor(mode: ViewMode) = positions[mode] ?: ViewPosition(today)
+    internal fun selectedDateFor(mode: ViewMode) = positionFor(mode).selected
+    internal fun timelineStartFor(mode: ViewMode) = positionFor(mode).first
+    var selectedDate: LocalDate
+        get() = selectedDateFor(viewMode)
+        private set(value) { positions[viewMode] = positionFor(viewMode).copy(selected = value) }
     private var dayParent by mutableStateOf(restored?.dayParent)
     val hasDayParent: Boolean get() = dayParent != null
-    private var openedFromMonthGrid by mutableStateOf(restored?.fromMonthGrid == true)
-
-    /** Day opened by tapping a Month grid date: one date, no week strip, no Today shortcut, and its own layout. */
-    val dayDrilldown: Boolean get() = openedFromMonthGrid && dayParent != null && viewMode == ViewMode.Day
-    var drilldownLayout by mutableStateOf(drilldownLayoutOrDefault(uiPrefs.getString(KEY_DRILLDOWN_LAYOUT, null))); private set
-
-    /** The Day layout on screen. The standalone Day view keeps its own saved layout. */
-    val activeDayLayout: String get() = if (dayDrilldown) drilldownLayout else dayLayout
-
-    fun changeDrilldownLayout(value: String) {
-        require(value in DAY_LAYOUT_CHOICES)
-        if (value == drilldownLayout) return
-        uiPrefs.edit().putString(KEY_DRILLDOWN_LAYOUT, value).apply()
-        Snapshot.withMutableSnapshot {
-            if (dayDrilldown) pagedTimelineTodayHandled.intValue = todayRequest
-            drilldownLayout = value
-            if (dayDrilldown) dayFocusRequest++
-        }
-        if (dayDrilldown) ensureLoaded()
-    }
-
-    /** Screen opened without the fade, so a closing dialog never reveals the calendar under it. */
-    var instantScreen by mutableStateOf<Screen?>(null); private set
+    val searchMorph = SearchMorph()
     var dayFocusRequest by mutableStateOf(0); private set
+    /** Whether the pending day focus came from a link to a date, so it rings the event it lands on. */
+    var dayFocusRing by mutableStateOf(false); private set
     private var handledDayFocus = 0
     val pendingDayFocus: Boolean get() = viewMode == ViewMode.Day && handledDayFocus != dayFocusRequest
 
@@ -359,8 +282,14 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
     var viewMode by mutableStateOf(restored?.viewMode ?: launchViewMode()); private set
 
     /** Bumped by [goToday] so the calendar can re-center and confirm the action even when today is already selected. */
-    var todayRequest by mutableStateOf(0); private set
-    internal val pagedTimelineTodayHandled = mutableIntStateOf(0)
+    var todayRequest by mutableIntStateOf(0); private set
+    private var todayMode by mutableStateOf<ViewMode?>(null)
+    private var todayTimelineNavigation = -1
+
+    fun todayRequestFor(mode: ViewMode): Int = if (todayMode == mode) todayRequest else 0
+
+    fun isTimelineToday(mode: ViewMode, request: Int): Boolean =
+        todayMode == mode && todayTimelineNavigation == request
 
     val stack = mutableStateListOf<Screen>()
     var editor by mutableStateOf<EditorState?>(null); private set
@@ -379,11 +308,8 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
     val messages = messageChannel.receiveAsFlow()
 
     private var loadJob: Job? = null
-    private var loadingRange: Pair<Pair<LocalDate, LocalDate>, Pair<LocalDate, LocalDate>>? = null
-    private var extensionJob: Job? = null
-    private var agendaEvents = emptyList<CalendarEvent>()
-    private var gridEvents = emptyList<CalendarEvent>()
-    private var targetWindow: Pair<LocalDate, LocalDate>? = null
+    private var loadingRanges: EventRanges? = null
+    private var targetWindow: ClosedRange<LocalDate>? = null
     private var loadGeneration = 0L
     private var changeJob: Job? = null
     private var searchJob: Job? = null
@@ -393,85 +319,76 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
     init {
         // Read when Android saves the activity, so a recreated process returns to the same view and dates.
         savedState.setSavedStateProvider(KEY_POSITION) {
-            CalendarPosition(viewMode, selectedDate, selectedDate == today, dayParent, openedFromMonthGrid, timelineViewportStart).toBundle()
+            CalendarPosition(viewMode, positions.toMap(), dayParent).toBundle(today)
         }
-        if (hasPermission) reload()
     }
 
     // region permissions and lifecycle
 
-    private fun calendarGranted() = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED &&
-        ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALENDAR) == PackageManager.PERMISSION_GRANTED
-
-    private fun notificationGranted() = Build.VERSION.SDK_INT < 33 ||
-        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-
     val needsNotificationStep: Boolean
         get() = Build.VERSION.SDK_INT >= 33 && !notificationsGranted && remindersEnabled && !notificationStepDone
 
-    fun onResume() {
+    private var settingsWindow = false
+
+    fun onResume(settingsWindow: Boolean = false) {
+        this.settingsWindow = settingsWindow
         settingStates.forEach { it.reload() }
         refreshCurrentDate()
-        notificationsGranted = notificationGranted()
-        val granted = calendarGranted()
+        notificationsGranted = !context.needsNotificationPermission()
+        val granted = context.hasCalendarAccess()
         val changed = granted != hasPermission
         hasPermission = granted
         if (!granted) {
             todoJob?.cancel(); todoItems = emptyList(); todoCompleted = emptySet(); todoLoading = false
             loadJob?.cancel()
-            extensionJob?.cancel()
             loadGeneration++
             loadingEvents = false
-            extendingAgenda = false
-            calendars = emptyList(); events = emptyList(); loaded = false
-            eventsByDay = emptyMap()
-            loadedFrom = null; loadedTo = null
-            gridLoadedFrom = null; gridLoadedTo = null
-            agendaEvents = emptyList(); gridEvents = emptyList(); targetWindow = null
+            calendars = emptyList(); loaded = false
+            eventWindows.clear()
+            targetWindow = null
             clearSearch()
             stack.clear(); editor = null
             return
         }
         if (changed) refreshApp()
-        // The first resume follows the load started in init; restarting it would only discard a query in flight.
-        if (changed || loadJob?.isActive != true) reload()
+        val calendarsChanged = settings.visibleCalendarIds(calendars) != activeIds
+        if (calendarsChanged) invalidateSearch()
+        // Keep an in-flight refresh only if it still uses the calendars chosen in Settings.
+        if (changed || calendarsChanged || loadJob?.isActive != true) reload()
         pendingLink?.let { link -> pendingLink = null; link() }
     }
 
     fun onCalendarPermissionResult() = onResume()
 
     fun finishAiIntro() {
-        uiPrefs.edit().putBoolean("ai_intro_done", true).putBoolean("layout_setup_done", layoutSetupDone).apply()
+        settings.aiIntroDone = true
         aiIntroDone = true
     }
 
     fun startComputerSetup() {
-        uiPrefs.edit().putBoolean("computer_setup_requested", true).apply()
+        settings.computerSetupRequested = true
         finishAiIntro()
     }
 
-    fun finishLayoutSetup() {
-        val initialView = ViewMode.Month
-        startView = initialView.name
-        changeViewMode(initialView)
-        uiPrefs.edit().putBoolean("layout_setup_done", true).apply()
-        layoutSetupDone = true
-    }
+    internal var settingsPage by mutableStateOf<SettingsPage?>(null)
+        private set
+
+    internal fun takeSettingsPage(): SettingsPage? = settingsPage.also { settingsPage = null }
 
     fun openRequestedComputerSetup() {
-        if (!layoutSetupDone || !hasPermission || needsNotificationStep || stack.isNotEmpty() || !uiPrefs.getBoolean("computer_setup_requested", false)) return
-        uiPrefs.edit().remove("computer_setup_requested").apply()
-        open(Screen.DeviceLink)
+        if (!hasPermission || needsNotificationStep || stack.isNotEmpty() || !settings.computerSetupRequested) return
+        settings.computerSetupRequested = false
+        settingsPage = SettingsPage.Computer
     }
 
     fun onNotificationPermissionResult(granted: Boolean, fromOnboarding: Boolean) {
-        notificationsGranted = notificationGranted()
+        notificationsGranted = !context.needsNotificationPermission()
         if (fromOnboarding) finishNotificationStep(enable = granted)
         else remindersEnabled = granted
     }
 
     fun finishNotificationStep(enable: Boolean) {
-        uiPrefs.edit().putBoolean(KEY_NOTIFY_ASKED, true).apply()
+        settings.notificationStepDone = true
         notificationStepDone = true
         if (!enable) remindersEnabled = false
     }
@@ -497,7 +414,9 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
 
     private val gridMonth: YearMonth get() = if (continuousTimeline()) YearMonth.from(timelineViewportStart ?: selectedDate) else month
 
-    fun continuousTimeline(): Boolean = viewMode == ViewMode.Week && weekLayout == "continuous"
+    /** Week's continuous layout and Day's timeline share one sideways strip of days. */
+    fun continuousTimeline(mode: ViewMode = viewMode): Boolean =
+        mode == ViewMode.Week || (mode == ViewMode.Day && !calendarExpanded)
 
     fun timelineActionDate(): LocalDate {
         val first = timelineViewportStart ?: return selectedDate
@@ -505,100 +424,84 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
         return if (selectedDate in first..last) selectedDate else first
     }
 
-    private fun gridRange(): Pair<LocalDate, LocalDate> {
-        val start = gridStart(gridMonth, weekStartsMonday)
-        return start to start.plusDays(41)
-    }
+    private fun gridRange(month: YearMonth = gridMonth): ClosedRange<LocalDate> =
+        gridStart(month).let { it..it.plusDays(41) }
 
-    private fun bufferedGridRange(): Pair<LocalDate, LocalDate> =
-        gridStart(gridMonth.minusMonths(2), weekStartsMonday) to gridStart(gridMonth.plusMonths(2), weekStartsMonday).plusDays(41)
+    private fun bufferedGridRange(months: Long): ClosedRange<LocalDate> =
+        gridRange(gridMonth.minusMonths(months)).start..gridRange(gridMonth.plusMonths(months)).endInclusive
 
-    private fun requiredGridRange(): Pair<LocalDate, LocalDate> =
-        gridStart(gridMonth.minusMonths(1), weekStartsMonday) to gridStart(gridMonth.plusMonths(1), weekStartsMonday).plusDays(41)
-
-    private fun continuousAgenda() = continuousTimeline() || (viewMode == ViewMode.Month && monthLayout != "full" && agendaRange == "continuous") ||
-        (viewMode == ViewMode.Day && activeDayLayout == "schedule")
-
-    private fun initialWindow(): Pair<LocalDate, LocalDate> = if (continuousAgenda()) {
+    private fun initialWindow(): ClosedRange<LocalDate> = if (continuousTimeline()) {
         val anchor = timelineLoadAnchor()
-        anchor.minusDays(60) to anchor.plusDays(120)
+        anchor.minusDays(60)..anchor.plusDays(120)
     } else gridRange()
 
-    private fun wantedRange(): Pair<LocalDate, LocalDate> {
-        return if (continuousAgenda()) targetWindow ?: initialWindow() else gridRange()
-    }
+    private fun wantedRange() = if (continuousTimeline()) targetWindow ?: initialWindow() else gridRange()
 
-    fun coversRange(from: LocalDate, to: LocalDate): Boolean =
-        containsRange(loadedFrom, loadedTo, from, to) || containsRange(gridLoadedFrom, gridLoadedTo, from, to)
-
-    private fun containsRange(start: LocalDate?, end: LocalDate?, from: LocalDate, to: LocalDate): Boolean =
-        start != null && end != null && !start.isAfter(from) && !end.isBefore(to)
+    internal fun coversRange(from: LocalDate, to: LocalDate, mode: ViewMode = viewMode) =
+        loadedRangesFor(mode)?.covers(from..to) == true
 
     private fun ensureLoaded() {
-        val anchor = timelineLoadAnchor()
-        if (continuousAgenda() && !containsRange(targetWindow?.first, targetWindow?.second, anchor, anchor)) {
-            targetWindow = initialWindow()
-        }
-        val (from, to) = wantedRange()
-        val (gridFrom, gridTo) = gridRange()
-        val buffer = requiredGridRange()
+        if (continuousTimeline() && targetWindow?.contains(timelineLoadAnchor()) != true) targetWindow = initialWindow()
+        val wanted = wantedRange()
+        val buffer = bufferedGridRange(1)
         if (loadJob?.isActive == true) {
-            val loading = loadingRange
-            if (loading == null ||
-                !(containsRange(loading.first.first, loading.first.second, from, to) || containsRange(loading.second.first, loading.second.second, from, to)) ||
-                !containsRange(loading.second.first, loading.second.second, buffer.first, buffer.second)) reload()
+            val loading = loadingRanges
+            if (loading == null || !loading.covers(wanted) || !loading.grid.covers(buffer)) loadEvents()
             return
         }
-        if (!coversRange(from, to) || !coversRange(gridFrom, gridTo) || !coversRange(buffer.first, buffer.second)) reload()
+        val loaded = loadedRangesFor(viewMode)
+        if (loaded == null || !loaded.covers(wanted) || !loaded.covers(buffer)) loadEvents()
     }
 
     private fun timelineLoadAnchor(): LocalDate =
         if (continuousTimeline() && timelineNavigationRequest == handledTimelineNavigation) timelineViewportStart ?: selectedDate
         else selectedDate
 
-    private fun eventsBetween(from: LocalDate, to: LocalDate, ids: Set<Long>): List<CalendarEvent> {
+    private fun eventsBetween(dates: ClosedRange<LocalDate>, ids: Set<Long>): List<CalendarEvent> {
         val zone = ZoneId.systemDefault()
-        val start = from.minusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
-        val end = to.plusDays(2).atStartOfDay(zone).toInstant().toEpochMilli()
+        val start = dates.start.minusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        val end = dates.endInclusive.plusDays(2).atStartOfDay(zone).toInstant().toEpochMilli()
         return repo.events(start, end, ids, school = true, reminders = true)
     }
 
     fun reload() {
+        // Provider and permission changes can invalidate data cached by the other views.
+        ViewMode.entries.forEach { if (it != viewMode) eventWindows.remove(it) }
+        loadEvents()
+    }
+
+    private fun loadEvents() {
         if (!hasPermission) return
-        val (from, to) = wantedRange()
-        targetWindow = from to to
-        val buffer = bufferedGridRange()
-        loadingRange = (from to to) to buffer
+        val ranges = EventRanges(wantedRange(), bufferedGridRange(2))
+        targetWindow = ranges.agenda
+        loadingRanges = ranges
         loadJob?.cancel()
-        extensionJob?.cancel()
-        extendingAgenda = false
         val generation = ++loadGeneration
         loadingEvents = true
         loadJob = viewModelScope.launch {
             try {
                 val cals = withContext(Dispatchers.IO) { repo.calendars() }
-                val ids = effectiveIds(cals)
+                val ids = settings.visibleCalendarIds(cals)
                 Snapshot.withMutableSnapshot {
                     calendars = cals
                     activeIds = ids
                 }
+                if (settingsWindow) {
+                    loadError = null
+                    loaded = true
+                    fillMissingCalendar()
+                    return@launch
+                }
                 if (Screen.Todo in stack) reloadTodos()
                 val result = withContext(Dispatchers.IO) {
-                    val agenda = eventsBetween(from, to, ids)
-                    val calendar = if (containsRange(from, to, buffer.first, buffer.second)) agenda
-                        else eventsBetween(buffer.first, buffer.second, ids)
-                    prepareEvents(agenda, calendar, minOf(from, buffer.first), maxOf(to, buffer.second))
+                    val agenda = eventsBetween(ranges.agenda, ids)
+                    val grid = if (ranges.agenda.covers(ranges.grid)) agenda else eventsBetween(ranges.grid, ids)
+                    prepareEvents(agenda, grid, minOf(ranges.agenda.start, ranges.grid.start), maxOf(ranges.agenda.endInclusive, ranges.grid.endInclusive))
                 }
-                val wanted = wantedRange()
-                if (generation != loadGeneration ||
-                    !(containsRange(from, to, wanted.first, wanted.second) || containsRange(buffer.first, buffer.second, wanted.first, wanted.second)) ||
-                    !containsRange(buffer.first, buffer.second, gridRange().first, gridRange().second)) return@launch
+                if (generation != loadGeneration || !ranges.covers(wantedRange()) || !ranges.grid.covers(gridRange())) return@launch
                 Snapshot.withMutableSnapshot {
-                    publishEvents(result)
-                    loadedFrom = from
-                    loadedTo = to
-                    gridLoadedFrom = buffer.first
-                    gridLoadedTo = buffer.second
+                    rememberCourseSlots(result.events)
+                    eventWindows[viewMode] = LoadedEvents(ranges, result)
                     loadError = null
                     loaded = true
                 }
@@ -616,82 +519,23 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
         }
     }
 
-    /** Page in the direction of travel and retain at most two years of agenda rows. Grid data is kept separately. */
-    fun extendAgenda(forward: Boolean) {
-        if (!hasPermission || !continuousAgenda() || extendingAgenda || loadJob?.isActive == true || loadError != null) return
-        val from = loadedFrom ?: return
-        val to = loadedTo ?: return
-        val ids = activeIds
-        val grid = gridRange()
-        val buffer = bufferedGridRange()
-        val previousAgenda = agendaEvents
-        val previousGrid = gridEvents
-        val gridCovered = containsRange(gridLoadedFrom, gridLoadedTo, buffer.first, buffer.second)
-        val generation = loadGeneration
-        val nextFrom = if (forward) from else from.minusDays(90)
-        val nextTo = if (forward) to.plusDays(90) else to
-        val boundedFrom = if (forward && java.time.temporal.ChronoUnit.DAYS.between(nextFrom, nextTo) >= 730) nextTo.minusDays(729) else nextFrom
-        val boundedTo = if (!forward && java.time.temporal.ChronoUnit.DAYS.between(nextFrom, nextTo) >= 730) nextFrom.plusDays(729) else nextTo
-        extendingAgenda = true
-        extensionJob = viewModelScope.launch {
-            try {
-                val result = withContext(Dispatchers.IO) {
-                    val added = if (forward) eventsBetween(to.plusDays(1), nextTo, ids) else eventsBetween(nextFrom, from.minusDays(1), ids)
-                    val calendar = if (gridCovered) previousGrid else eventsBetween(buffer.first, buffer.second, ids)
-                    val zone = ZoneId.systemDefault()
-                    val agenda = (previousAgenda + added).distinctBy { it.key() }.filter {
-                        val span = it.span(zone)
-                        !span.last.isBefore(boundedFrom) && !span.first.isAfter(boundedTo)
-                    }
-                    prepareEvents(agenda, calendar, minOf(boundedFrom, buffer.first), maxOf(boundedTo, buffer.second))
-                }
-                if (generation != loadGeneration || loadedFrom != from || loadedTo != to || activeIds != ids || gridRange() != grid) return@launch
-                Snapshot.withMutableSnapshot {
-                    publishEvents(result)
-                    targetWindow = boundedFrom to boundedTo
-                    loadedFrom = boundedFrom
-                    loadedTo = boundedTo
-                    gridLoadedFrom = buffer.first
-                    gridLoadedTo = buffer.second
-                }
-            } catch (c: CancellationException) {
-                throw c
-            } catch (e: Exception) {
-                if (generation == loadGeneration) loadError = e.userMessage()
-            } finally {
-                if (generation == loadGeneration) extendingAgenda = false
-            }
-        }
-    }
-
     private class EventSnapshot(
-        val agenda: List<CalendarEvent>, val grid: List<CalendarEvent>, val events: List<CalendarEvent>,
+        val events: List<CalendarEvent>,
         val byDay: Map<LocalDate, List<CalendarEvent>>,
     )
 
     private fun prepareEvents(agenda: List<CalendarEvent>, grid: List<CalendarEvent>, from: LocalDate, to: LocalDate): EventSnapshot {
         val merged = projectSchoolEvents((agenda + grid).distinctBy { it.key() }, ZoneId.systemDefault())
             .sortedWith(compareBy({ it.startMillis }, { it.id }))
-        return EventSnapshot(agenda, grid, merged, indexByDay(merged, ZoneId.systemDefault(), from, to))
+        return EventSnapshot(merged, indexByDay(merged, ZoneId.systemDefault(), from, to))
     }
 
-    private fun publishEvents(result: EventSnapshot) {
-        rememberCourseSlots(result.events)
-        agendaEvents = result.agenda
-        gridEvents = result.grid
-        events = result.events
-        eventsByDay = result.byDay
-    }
+    private class LoadedEvents(val ranges: EventRanges, val snapshot: EventSnapshot)
 
     private fun rememberCourseSlots(events: List<CalendarEvent>) {
         val next = assignCourseSlots(events.mapNotNull { it.school?.course }, courseColorSlots)
-        if (next != courseColorSlots) {
-            settings.courseColorSlots = next
-            courseColorSlots = next
-        }
+        if (next != courseColorSlots) courseColorSlots = next
     }
-
-    private fun effectiveIds(cals: List<DeviceCalendar>): Set<Long> = settings.visibleCalendarIds(cals)
 
     private fun fillMissingCalendar() {
         val current = editor ?: return
@@ -714,14 +558,15 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
     internal fun refreshCurrentDate(current: LocalDate = LocalDate.now()) {
         if (today == current) return
         Snapshot.withMutableSnapshot {
-            if (selectedDate == today) selectedDate = current
+            positions.toMap().forEach { (mode, position) ->
+                if (position.selected == today) positions[mode] = position.copy(selected = current)
+            }
             today = current
         }
         ensureLoaded()
     }
 
     fun select(date: LocalDate) {
-        pagedTimelineTodayHandled.intValue = todayRequest
         if (continuousTimeline()) timelineNavigationRequest++
         selectedDate = date
         ensureLoaded()
@@ -731,26 +576,28 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
         if (request == timelineNavigationRequest) handledTimelineNavigation = request
     }
 
-    fun selectTimelineDay(date: LocalDate) {
-        selectedDate = date
-        ensureLoaded()
-    }
-
     fun showTimelineRange(first: LocalDate, last: LocalDate, load: Boolean) {
         if (!continuousTimeline()) return
-        timelineViewportStart = first
-        timelineViewportEnd = last
+        // Day follows its own strip once it rests.
+        val date = if (load && viewMode == ViewMode.Day && timelineNavigationRequest == handledTimelineNavigation) first else selectedDate
+        positions[viewMode] = ViewPosition(date, first, last)
         if (!load || coversRange(first.minusDays(14), last.plusDays(14))) return
-        targetWindow = first.minusDays(60) to last.plusDays(120)
+        targetWindow = first.minusDays(60)..last.plusDays(120)
         if (loadingEvents || loadError != null) return
-        reload()
+        loadEvents()
     }
 
     fun goToday() {
         refreshCurrentDate()
-        consumeDayFocus(dayFocusRequest)
-        select(today)
-        todayRequest++
+        Snapshot.withMutableSnapshot {
+            consumeDayFocus(dayFocusRequest)
+            if (continuousTimeline()) timelineNavigationRequest++
+            selectedDate = today
+            todayMode = viewMode
+            todayTimelineNavigation = if (continuousTimeline()) timelineNavigationRequest else -1
+            todayRequest++
+        }
+        ensureLoaded()
     }
 
     fun step(delta: Int) {
@@ -761,54 +608,74 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
                 select(if (next == YearMonth.from(today)) today else next.atDay(1))
             }
             ViewMode.Week -> select((if (continuousTimeline()) timelineViewportStart ?: selectedDate else selectedDate).plusWeeks(delta.toLong()))
-            ViewMode.Day -> select(selectedDate.plusDays(delta.toLong()))
+            ViewMode.Day -> select((if (continuousTimeline()) timelineViewportStart ?: selectedDate else selectedDate).plusDays(delta.toLong()))
         }
     }
 
     fun changeViewMode(mode: ViewMode) {
         if (mode == viewMode) return
         refreshCurrentDate()
-        dayParent = null
-        openedFromMonthGrid = false
         Snapshot.withMutableSnapshot {
-            if (!keepSelectedDate) selectedDate = today
-            pagedTimelineTodayHandled.intValue = todayRequest
-            viewMode = mode
-            if (continuousTimeline()) { timelineViewportStart = selectedDate; timelineViewportEnd = selectedDate }
-            if (mode == ViewMode.Day) dayFocusRequest++
-            targetWindow = initialWindow()
+            dayParent = null
+            switchView(mode)
         }
         ensureLoaded()
-        if (settings.startView == START_LAST) uiPrefs.edit().putString(KEY_VIEW, mode.name).apply()
+        settings.lastView = mode.name
     }
 
-    private fun launchViewMode(): ViewMode {
-        val configured = settings.startView
-        val name = if (configured == START_LAST) uiPrefs.getString(KEY_VIEW, null) else configured
-        return ViewMode.entries.firstOrNull { it.name == name } ?: ViewMode.Month
+    private fun switchView(mode: ViewMode) {
+        if (mode == viewMode) return
+        if (timelineNavigationRequest != handledTimelineNavigation && isTimelineToday(viewMode, timelineNavigationRequest)) {
+            selectedDate = timelineViewportStart ?: selectedDate
+        }
+        handledTimelineNavigation = timelineNavigationRequest
+        val outgoing = eventWindows[viewMode]
+        val destination = timelineStartFor(mode)?.takeIf { continuousTimeline(mode) } ?: selectedDateFor(mode)
+        val existing = eventWindows[mode]
+        if (existing?.ranges?.covers(destination..destination) != true &&
+            outgoing?.ranges?.covers(destination..destination) == true
+        ) eventWindows[mode] = outgoing
+        viewMode = mode
+        targetWindow = eventWindows[mode]?.ranges?.agenda
     }
+
+    private fun launchViewMode(): ViewMode = settings.lastView.let { name -> ViewMode.entries.firstOrNull { it.name == name } } ?: ViewMode.Day
 
     // endregion
 
     // region navigation
 
-    fun openDay(date: LocalDate) {
-        if (viewMode != ViewMode.Day) {
-            openedFromMonthGrid = viewMode == ViewMode.Month && monthLayout == "full"
-            dayParent = viewMode to selectedDate
-        }
+    internal fun openDay(date: LocalDate, ring: Boolean = false) {
         Snapshot.withMutableSnapshot {
-            viewMode = ViewMode.Day
-            pagedTimelineTodayHandled.intValue = todayRequest
-            selectedDate = date
+            if (viewMode != ViewMode.Day) dayParent = viewMode
+            switchView(ViewMode.Day)
+            positions[ViewMode.Day] = ViewPosition(date, date)
+            if (continuousTimeline()) timelineNavigationRequest++
             targetWindow = initialWindow()
+            dayFocusRing = ring
             dayFocusRequest++
         }
         ensureLoaded()
     }
 
+    internal fun changeDayCalendarExpansion(expanded: Boolean) {
+        if (calendarExpanded == expanded) return
+        Snapshot.withMutableSnapshot {
+            if (expanded) {
+                selectedDate = timelineActionDate()
+                handledTimelineNavigation = timelineNavigationRequest
+            } else if (timelineViewportStart != selectedDate) {
+                positions[ViewMode.Day] = ViewPosition(selectedDate, selectedDate)
+                timelineNavigationRequest++
+            }
+            calendarExpanded = expanded
+            targetWindow = initialWindow()
+        }
+        ensureLoaded()
+    }
+
     fun selectAndFocus(date: LocalDate) {
-        if (viewMode == ViewMode.Day) dayFocusRequest++
+        if (viewMode == ViewMode.Day) { dayFocusRing = false; dayFocusRequest++ }
         select(date)
     }
 
@@ -819,26 +686,15 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
     }
 
     fun open(screen: Screen) {
-        instantScreen = null
         if (stack.lastOrNull() != screen) stack.add(screen)
-    }
-
-    /** Like [open], but the screen is drawn opaque in its first frame. Used when a dialog closes into it. */
-    fun openInstantly(screen: Screen) {
-        open(screen)
-        instantScreen = screen
     }
 
     fun back() {
         if (stack.isEmpty()) {
             val parent = dayParent ?: return
-            dayParent = null
-            openedFromMonthGrid = false
             Snapshot.withMutableSnapshot {
-                pagedTimelineTodayHandled.intValue = todayRequest
-                viewMode = parent.first
-                selectedDate = parent.second
-                targetWindow = initialWindow()
+                dayParent = null
+                switchView(parent)
             }
             ensureLoaded()
             return
@@ -848,12 +704,14 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
     }
 
     fun openSearch() {
+        // Each search starts empty rather than showing the last one.
+        updateSearch("")
         open(Screen.Search)
         loadSearchPool(force = true)
     }
 
     /** Whether app links can open now: setup is complete and the calendar has loaded. */
-    val linksReady: Boolean get() = aiIntroDone && layoutSetupDone && hasPermission && !needsNotificationStep && loaded
+    val linksReady: Boolean get() = aiIntroDone && hasPermission && !needsNotificationStep && loaded
 
     /** Queues [retry] until links are ready, or refuses while an edited event is open. */
     private fun linkBlocked(retry: () -> Unit): Boolean {
@@ -872,39 +730,33 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
             return
         }
         if (eventId <= 0) return
-        viewModelScope.launch {
-            try {
-                val event = withContext(Dispatchers.IO) {
-                    val draft = repo.getEvent(eventId) ?: return@withContext null
-                    val occurrenceStart = if (begin > 0) begin else draft.startMillis
-                    val calendarIds = setOf(draft.calendarId)
-                    val occurrence = repo.events(occurrenceStart - 1, occurrenceStart + 1, calendarIds, school = true)
-                        .firstOrNull { it.id == eventId && it.startMillis == occurrenceStart }
-                    if (occurrence?.school != null) {
-                        val zone = ZoneId.systemDefault()
-                        val day = occurrence.span(zone).first
-                        val surrounding = repo.events(day.minusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(),
-                            day.plusDays(2).atStartOfDay(zone).toInstant().toEpochMilli(), calendarIds, school = true)
-                        projectSchoolEvents(surrounding, zone).firstOrNull { projected ->
-                            projected.school?.periods?.any { it.eventId == eventId && it.startMillis == occurrenceStart } == true
-                        }?.let { return@withContext it }
-                    }
-                    if (occurrence != null) return@withContext occurrence
-                    val cal = repo.calendars().firstOrNull { it.id == draft.calendarId }
-                    CalendarEvent(eventId, draft.calendarId, draft.title, draft.description, draft.location, occurrenceStart,
-                        occurrenceStart + (draft.endMillis - draft.startMillis), draft.allDay, draft.timeZone, draft.rrule,
-                        cal?.color ?: 0, cal?.name ?: "")
+        launchAction {
+            val event = withContext(Dispatchers.IO) {
+                val draft = repo.getEvent(eventId) ?: return@withContext null
+                val occurrenceStart = if (begin > 0) begin else draft.startMillis
+                val calendarIds = setOf(draft.calendarId)
+                val occurrence = repo.events(occurrenceStart - 1, occurrenceStart + 1, calendarIds, school = true)
+                    .firstOrNull { it.id == eventId && it.startMillis == occurrenceStart }
+                if (occurrence?.school != null) {
+                    val zone = ZoneId.systemDefault()
+                    val day = occurrence.span(zone).first
+                    val surrounding = repo.events(day.minusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(),
+                        day.plusDays(2).atStartOfDay(zone).toInstant().toEpochMilli(), calendarIds, school = true)
+                    projectSchoolEvents(surrounding, zone).firstOrNull { projected ->
+                        projected.school?.periods?.any { it.eventId == eventId && it.startMillis == occurrenceStart } == true
+                    }?.let { return@withContext it }
                 }
-                if (event == null) {
-                    message(context.getString(R.string.msg_event_missing))
-                } else {
-                    select(event.span(ZoneId.systemDefault()).first)
-                    open(Screen.Details(event))
-                }
-            } catch (c: CancellationException) {
-                throw c
-            } catch (e: Exception) {
-                message(e.userMessage())
+                if (occurrence != null) return@withContext occurrence
+                val cal = repo.calendars().firstOrNull { it.id == draft.calendarId }
+                CalendarEvent(eventId, draft.calendarId, draft.title, draft.description, draft.location, occurrenceStart,
+                    occurrenceStart + (draft.endMillis - draft.startMillis), draft.allDay, draft.timeZone, draft.rrule,
+                    cal?.color ?: 0, cal?.name ?: "")
+            }
+            if (event == null) {
+                message(context.getString(R.string.msg_event_missing))
+            } else {
+                select(event.span(ZoneId.systemDefault()).first)
+                open(Screen.Details(event))
             }
         }
     }
@@ -913,12 +765,9 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
         require(date == null || date.year in 1900..2100)
         if (linkBlocked { handleSchoolLink(date, messages) }) return
         openCalendar()
-        if (date != null) openDay(date)
+        if (date != null) openDay(date, ring = true)
         else {
-            open(Screen.Settings)
-            open(Screen.Calendars)
-            open(Screen.SchoolSchedule)
-            if (messages) open(Screen.SchoolMessages)
+            settingsPage = if (messages) SettingsPage.Messages else SettingsPage.School
         }
     }
 
@@ -935,7 +784,7 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
 
     private fun defaultCalendarId(): Long? {
         val writable = writableCalendars
-        val last = uiPrefs.getLong(KEY_LAST_CALENDAR, -1)
+        val last = settings.lastCalendar
         return writable.firstOrNull { it.id == last }?.id
             ?: writable.firstOrNull { it.id in activeIds && !it.local }?.id
             ?: writable.firstOrNull { it.id in activeIds }?.id
@@ -944,9 +793,11 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
 
     fun newEvent(date: LocalDate) {
         val now = LocalDateTime.now()
-        val startTime = if (date == now.toLocalDate()) LocalTime.of((now.hour + 1).coerceAtMost(23), 0) else LocalTime.of(9, 0)
+        // Today starts at the next half hour, and the default hour stops at midnight rather than running into tomorrow.
+        val startTime = if (date != now.toLocalDate()) LocalTime.of(9, 0)
+            else LocalTime.MIN.plusMinutes((((now.hour * 60 + now.minute) / 30 + 1) * 30L).coerceAtMost(23 * 60 + 30L))
         val start = date.atTime(startTime)
-        val end = start.plusHours(1)
+        val end = minOf(start.plusHours(1), date.atTime(LocalTime.of(23, 59)))
         val state = EditorState(
             id = null, calendarId = defaultCalendarId(), lockedCalendar = false,
             startDate = date, startTime = startTime, endDate = end.toLocalDate(), endTime = end.toLocalTime(),
@@ -965,19 +816,13 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
     }
 
     fun editEvent(id: Long) {
-        viewModelScope.launch {
-            try {
-                val draft = withContext(Dispatchers.IO) { repo.getEvent(id) }
-                if (draft == null) { message(context.getString(R.string.msg_event_missing)); return@launch }
-                val state = EditorState.from(draft, ZoneId.systemDefault())
-                editor = state
-                editorInitial = state
-                open(Screen.Editor)
-            } catch (c: CancellationException) {
-                throw c
-            } catch (e: Exception) {
-                message(e.userMessage())
-            }
+        launchAction {
+            val draft = withContext(Dispatchers.IO) { repo.getEvent(id) }
+            if (draft == null) { message(context.getString(R.string.msg_event_missing)); return@launchAction }
+            val state = EditorState.from(draft, ZoneId.systemDefault())
+            editor = state
+            editorInitial = state
+            open(Screen.Editor)
         }
     }
 
@@ -998,43 +843,29 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
         if (saving || state.problem(writableCalendars) != null) return
         if (state.id != null && !editorDirty) { closeEditor(); return }
         saving = true
-        viewModelScope.launch {
-            try {
-                val draft = state.toDraft(ZoneId.systemDefault())
-                withContext(Dispatchers.IO) { repo.saveEvent(draft) }
-                uiPrefs.edit().putLong(KEY_LAST_CALENDAR, draft.calendarId).apply()
-                closeEditor()
-                if (state.id != null) stack.removeAll { it is Screen.Details && it.event.id == state.id }
-                refreshApp()
-                invalidateSearch()
-                select(state.startDate)
-                reload()
-                message(context.getString(R.string.msg_saved))
-            } catch (c: CancellationException) {
-                throw c
-            } catch (e: Exception) {
-                message(e.userMessage())
-            } finally {
-                saving = false
-            }
+        launchAction({ saving = false }) {
+            val draft = state.toDraft(ZoneId.systemDefault())
+            withContext(Dispatchers.IO) { repo.saveEvent(draft) }
+            settings.lastCalendar = draft.calendarId
+            closeEditor()
+            if (state.id != null) stack.removeAll { it is Screen.Details && it.event.id == state.id }
+            refreshApp()
+            invalidateSearch()
+            select(state.startDate)
+            reload()
+            message(context.getString(R.string.msg_saved))
         }
     }
 
     fun deleteEvent(id: Long) {
-        viewModelScope.launch {
-            try {
-                withContext(Dispatchers.IO) { repo.deleteEvent(id) }
-                if (editor?.id == id) closeEditor()
-                stack.removeAll { it is Screen.Details && it.event.id == id }
-                refreshApp()
-                invalidateSearch()
-                reload()
-                message(context.getString(R.string.msg_deleted))
-            } catch (c: CancellationException) {
-                throw c
-            } catch (e: Exception) {
-                message(e.userMessage())
-            }
+        launchAction {
+            withContext(Dispatchers.IO) { repo.deleteEvent(id) }
+            if (editor?.id == id) closeEditor()
+            stack.removeAll { it is Screen.Details && it.event.id == id }
+            refreshApp()
+            invalidateSearch()
+            reload()
+            message(context.getString(R.string.msg_deleted))
         }
     }
 
@@ -1055,82 +886,23 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
     val hasSunlithCalendar: Boolean get() = calendars.any { it.local && it.writable && it.account == "Sunlith" }
 
     fun createLocalCalendar(showInApp: Boolean = true, onCreated: (Long) -> Unit = {}) {
-        viewModelScope.launch {
-            try {
-                if (!showInApp && !settings.hasChosenCalendars) {
-                    settings.selectedCalendarIds = activeIds
-                    settings.hasChosenCalendars = true
-                }
-                val id = withContext(Dispatchers.IO) { repo.createLocalCalendar() }
-                if (showInApp && settings.hasChosenCalendars && id !in activeIds) {
-                    settings.selectedCalendarIds = activeIds + id
-                    activeIds = activeIds + id
-                }
-                val cals = withContext(Dispatchers.IO) { repo.calendars() }
-                calendars = cals
-                refreshApp()
-                reload()
-                onCreated(id)
-                message(context.getString(R.string.msg_local_created))
-            } catch (c: CancellationException) {
-                throw c
-            } catch (e: Exception) {
-                message(e.userMessage())
+        launchAction {
+            if (!showInApp && !settings.hasChosenCalendars) {
+                settings.selectedCalendarIds = activeIds
+                settings.hasChosenCalendars = true
             }
-        }
-    }
-
-    fun previewOpacity(value: Int) { opacity.state = ((value.coerceIn(0, 100) + 2) / 5) * 5 }
-
-    fun commitOpacity() {
-        settings.widgetOpacity = widgetOpacity
-        opacity.reload()
-        refreshApp()
-    }
-
-    fun workweekTimeline(): Boolean = viewMode == ViewMode.Week && weekLayout == "timeline" && visibleWeekDays == 5 && !rollingFiveDays
-
-    /** The chooser value for [mode]'s current layout, or null when it uses a layout the chooser does not offer. */
-    fun currentLayoutChoice(mode: ViewMode): String? = when (mode) {
-        ViewMode.Month -> monthLayout
-        ViewMode.Week -> weekLayout
-        ViewMode.Day -> dayLayout.takeIf { it in DAY_LAYOUT_CHOICES }
-    }
-
-    /** Saves a layout offered by [layoutChoices]. */
-    fun setLayoutChoice(mode: ViewMode, choice: String) {
-        require(choice in layoutChoices(mode))
-        require(days == null || (mode == ViewMode.Week && choice == "continuous" && days in SettingsStore.VISIBLE_DAY_CHOICES))
-        if (days != null && days != visibleWeekDays) changeVisibleWeekDays(days)
-        if (currentLayoutChoice(mode) != choice) when (mode) {
-            ViewMode.Month -> monthLayout = choice
-            ViewMode.Week -> if (choice == "list" || choice == "continuous") weekLayout = choice else {
-                val days = choice.removePrefix("timeline").toInt()
-                if (visibleWeekDays != days) visibleWeekDays = days
-                if (weekLayout != "timeline") weekLayout = "timeline"
+            val id = withContext(Dispatchers.IO) { repo.createLocalCalendar() }
+            if (showInApp && settings.hasChosenCalendars && id !in activeIds) {
+                settings.selectedCalendarIds = activeIds + id
+                activeIds = activeIds + id
             }
-            ViewMode.Day -> dayLayout = choice
+            val cals = withContext(Dispatchers.IO) { repo.calendars() }
+            calendars = cals
+            refreshApp()
+            reload()
+            onCreated(id)
+            message(context.getString(R.string.msg_local_created))
         }
-    }
-
-    /** Applies a layout from the view chooser, then opens that view. */
-    fun applyViewLayout(mode: ViewMode, choice: String) {
-        setLayoutChoice(mode, choice)
-        changeViewMode(mode)
-    }
-
-    /** A stock preset sets the three views and the continuous Week's default column count. */
-    fun applyLayoutPreset(value: String) {
-        require(value in setOf("sunlith", "planner"))
-        settings.monthLayout = if (value == "planner") "full" else "split"
-        settings.weekLayout = "list"
-        settings.dayLayout = "cards"
-        settings.visibleWeekDays = 7
-        Snapshot.withMutableSnapshot {
-            settingStates.forEach { it.reload() }
-            targetWindow = initialWindow()
-        }
-        reload()
     }
 
     // endregion
@@ -1160,7 +932,7 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
                 val pool = withContext(Dispatchers.IO) {
                     val zone = ZoneId.systemDefault()
                     val today = LocalDate.now()
-                    val ids = effectiveIds(repo.calendars())
+                    val ids = settings.visibleCalendarIds(repo.calendars())
                     projectSchoolEvents(repo.events(today.minusDays(365).atStartOfDay(zone).toInstant().toEpochMilli(),
                         today.plusDays(730).atStartOfDay(zone).toInstant().toEpochMilli(), ids, school = true), zone)
                 }
@@ -1247,28 +1019,20 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
     fun export(uri: Uri, calendarIds: Set<Long>) {
         if (exporting) return
         exporting = true
-        viewModelScope.launch {
-            try {
-                val report = withContext(Dispatchers.IO) {
-                    val staged = File.createTempFile("sunlith-export-", ".ics", context.cacheDir)
-                    try {
-                        val exported = staged.outputStream().use { transfer.export(it, calendarIds) }
-                        val stream = runCatching { context.contentResolver.openOutputStream(uri, "wt") }.getOrNull()
-                            ?: context.contentResolver.openOutputStream(uri) ?: throw FileNotFoundException()
-                        stream.use { output -> staged.inputStream().use { it.copyTo(output) } }
-                        exported
-                    } finally { staged.delete() }
-                }
-                message(context.resources.getQuantityString(R.plurals.msg_exported, report.exported, report.exported))
-                if (report.skipped > 0) {
-                    message(context.getString(R.string.msg_export_skipped))
-                }
-            } catch (c: CancellationException) {
-                throw c
-            } catch (e: Exception) {
-                message(e.userMessage())
-            } finally {
-                exporting = false
+        launchAction({ exporting = false }) {
+            val report = withContext(Dispatchers.IO) {
+                val staged = File.createTempFile("sunlith-export-", ".ics", context.cacheDir)
+                try {
+                    val exported = staged.outputStream().use { transfer.export(it, calendarIds) }
+                    val stream = runCatching { context.contentResolver.openOutputStream(uri, "wt") }.getOrNull()
+                        ?: context.contentResolver.openOutputStream(uri) ?: throw FileNotFoundException()
+                    stream.use { output -> staged.inputStream().use { it.copyTo(output) } }
+                    exported
+                } finally { staged.delete() }
+            }
+            message(context.resources.getQuantityString(R.plurals.msg_exported, report.exported, report.exported))
+            if (report.skipped > 0) {
+                message(context.getString(R.string.msg_export_skipped))
             }
         }
     }
@@ -1277,6 +1041,22 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
 
     fun message(text: String, actionLabel: String? = null, action: (() -> Unit)? = null) {
         messageChannel.trySend(UiMessage(text, actionLabel, action))
+    }
+
+    private fun launchAction(onFinally: () -> Unit = {}, block: suspend () -> Unit) = viewModelScope.launch {
+        try {
+            block()
+        } catch (c: CancellationException) {
+            throw c
+        } catch (e: Exception) {
+            message(e.userMessage())
+        } finally {
+            onFinally()
+        }
+    }
+
+    private fun refreshWidgets() {
+        AppRefresh.executor.execute { runCatching { AgendaWidgetReceiver.updateAll(context) } }
     }
 
     private fun refreshApp() {
@@ -1290,11 +1070,6 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
     }
 
     companion object {
-        private const val START_LAST = "last"
-        private const val KEY_VIEW = "view_mode"
-        private const val KEY_DRILLDOWN_LAYOUT = "month_drilldown_layout"
-        private const val KEY_LAST_CALENDAR = "last_calendar"
-        private const val KEY_NOTIFY_ASKED = "notify_asked"
         private const val KEY_POSITION = "calendar_position"
     }
 }

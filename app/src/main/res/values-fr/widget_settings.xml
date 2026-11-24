@@ -5,4 +5,13 @@
     <string name="widget_calendar_access">Ouvrez Sunlith pour autoriser l’accès aux agendas.</string>
     <string name="widget_choose_calendars">Ouvrez Sunlith pour choisir des agendas.</string>
     <string name="widget_calendar_unavailable">Agenda indisponible. Ouvrez Sunlith pour réessayer.</string>
+    <string name="widget_settings_title">Widget</string>
+    <string name="widget_days">Jours à afficher</string>
+    <plurals name="widget_days_value">
+        <item quantity="one">%d jour</item>
+        <item quantity="many">%d jours</item>
+        <item quantity="other">%d jours</item>
+    </plurals>
+    <string name="widget_empty_days">Afficher les jours vides</string>
+    <string name="widget_calendar_name">Afficher les noms des agendas</string>
 </resources>

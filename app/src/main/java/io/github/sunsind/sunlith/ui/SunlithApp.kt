@@ -5,14 +5,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedContentTransitionScope
-import androidx.compose.animation.ContentTransform
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -63,16 +55,59 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import io.github.sunsind.sunlith.R
-import io.github.sunsind.sunlith.school.SchoolScheduleManager
+import io.github.sunsind.sunlith.SettingsActivity
+import io.github.sunsind.sunlith.data.key
+import io.github.sunsind.sunlith.ui.calendar.CalendarScreen
+import io.github.sunsind.sunlith.ui.calendar.LocalCourseColors
+import io.github.sunsind.sunlith.ui.calendar.CourseColors
+import io.github.sunsind.sunlith.ui.event.DetailsScreen
+import io.github.sunsind.sunlith.ui.event.EventEditorScreen
+import io.github.sunsind.sunlith.ui.settings.openAppSettings
 
 @Composable
 fun SunlithApp(vm: SunlithViewModel, footer: @Composable () -> Unit = {}) {
-    val settingsState = rememberSaveableStateHolder()
-    val settingsOpen = Screen.Settings in vm.stack
-    LaunchedEffect(settingsOpen) {
-        if (!settingsOpen) settingsState.removeState("settings")
+    val screenStates = rememberSaveableStateHolder()
+    val stackKeys = vm.stack.mapIndexed { index, screen -> screen.savedKey(index + 1) }
+    var retainedKeys by remember { mutableStateOf(emptyList<String>()) }
+    LaunchedEffect(stackKeys) {
+        (retainedKeys - stackKeys.toSet()).forEach(screenStates::removeState)
+        retainedKeys = stackKeys
     }
-    SunlithTheme(vm.themeMode, vm.materialYou) {
+    SunlithWindow(vm, footer) {
+        when {
+            !vm.aiIntroDone -> ComputerWelcome(vm)
+            !vm.hasPermission -> Onboarding(vm)
+            vm.needsNotificationStep -> NotificationStep(vm)
+            else -> {
+                val top = vm.stack.lastOrNull()
+                val context = LocalContext.current
+                LaunchedEffect(top) { vm.openRequestedComputerSetup() }
+                LaunchedEffect(vm.settingsPage) {
+                    vm.takeSettingsPage()?.let { SettingsActivity.openRequested(context, it) }
+                }
+                BackHandler(enabled = top != null || vm.hasDayParent, onBack = vm::back)
+                CalendarScreen(vm, if (top != null) Modifier.clearAndSetSemantics { } else Modifier)
+                if (top != null) {
+                    val surface = if (top == Screen.Search) Modifier else Modifier.background(LocalPalette.current.background)
+                    Box(Modifier.fillMaxSize().then(surface).pointerInput(Unit) { }) {
+                        screenStates.SaveableStateProvider(stackKeys.last()) {
+                            when (top) {
+                                Screen.Search -> SearchScreen(vm)
+                                Screen.Todo -> TodoScreen(vm)
+                                Screen.Editor -> EventEditorScreen(vm)
+                                is Screen.Details -> DetailsScreen(vm, top.event)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun SunlithWindow(vm: SunlithViewModel, footer: @Composable () -> Unit = {}, content: @Composable () -> Unit) {
+    SunlithTheme(vm.themeMode) {
         val p = LocalPalette.current
         SystemBarsForPalette()
         val snackbar = remember { SnackbarHostState() }
@@ -85,95 +120,25 @@ fun SunlithApp(vm: SunlithViewModel, footer: @Composable () -> Unit = {}) {
                 if (result == SnackbarResult.ActionPerformed) m.action?.invoke()
             }
         }
-        val courseColors = rememberCourseColors(vm.eventsByDay, vm.courseColorSlots)
+        val courseColors = remember(vm.courseColorSlots) { CourseColors(vm.courseColorSlots) }
         CompositionLocalProvider(LocalCourseColors provides courseColors) {
-        Column(Modifier.fillMaxSize()) {
-        Box(Modifier.weight(1f).fillMaxWidth().background(p.background)) {
-            when {
-                !vm.aiIntroDone -> ComputerWelcome(vm)
-                !vm.layoutSetupDone -> LayoutSetupScreen(vm)
-                !vm.hasPermission -> Onboarding(vm)
-                vm.needsNotificationStep -> NotificationStep(vm)
-                else -> {
-                    LaunchedEffect(vm.stack.lastOrNull()) { vm.openRequestedComputerSetup() }
-                    BackHandler(enabled = vm.stack.isNotEmpty() || vm.hasDayParent) { vm.back() }
-                    val motion = rememberMotion(vm.navigationAnimation)
-                    val top = vm.stack.lastOrNull()
-                    val layer = ScreenLayer(top, vm.stack.size, instant = top != null && top == vm.instantScreen)
-                    // Fades only run between two screens, each drawn opaque. Going back to the calendar is a cut, so the
-                    // calendar is never seen through a half faded screen and the cover can follow the stack directly.
-                    val covered = top != null
-                    CalendarScreen(vm, if (covered) Modifier.clearAndSetSemantics { } else Modifier)
-                    AnimatedContent(
-                        targetState = layer,
-                        modifier = Modifier.fillMaxSize().then(if (covered) Modifier.background(p.background) else Modifier),
-                        contentKey = { it.screen to it.depth },
-                        transitionSpec = { screenTransition(initialState, targetState, motion) },
-                        label = "screens",
-                    ) { shown ->
-                        val screen = shown.screen
-                        if (screen != null) Box(Modifier.fillMaxSize().background(p.background).pointerInput(Unit) { }) {
-                        when (screen) {
-                            Screen.Search -> SearchScreen(vm)
-                            Screen.Todo -> TodoScreen(vm)
-                            Screen.Settings -> settingsState.SaveableStateProvider("settings") { SettingsScreen(vm) }
-                            Screen.WidgetSettings -> SettingsScreen(vm, initialPage = "widget")
-                            Screen.Calendars -> CalendarsScreen(vm)
-                            Screen.SchoolSchedule -> {
-                                val context = LocalContext.current
-                                val controller = remember(context.applicationContext) { SchoolScheduleManager.get(context) }
-                                LaunchedEffect(controller) { controller.onOpen() }
-                                SchoolScheduleScreen(controller, onBack = vm::back, onChooseCalendars = vm::back,
-                                    onOpenMessages = { vm.open(Screen.SchoolMessages) })
-                            }
-                            Screen.SchoolMessages -> {
-                                val context = LocalContext.current
-                                val controller = remember(context.applicationContext) {
-                                    io.github.sunsind.sunlith.school.SchoolMessagesManager.get(context)
-                                }
-                                SchoolMessagesScreen(controller, onBack = vm::back,
-                                    onAddSuggestion = vm::addSchoolSuggestion,
-                                    onOpenDate = { date -> vm.openCalendar(); vm.openDay(date) })
-                            }
-                            Screen.DeviceLink -> DeviceLinkScreen(vm)
-                            Screen.Editor -> EventEditorScreen(vm)
-                            is Screen.Details -> DetailsScreen(vm, screen.event)
-                        }
-                        }
+            Column(Modifier.fillMaxSize()) {
+                Box(Modifier.weight(1f).fillMaxWidth().background(p.background)) {
+                    content()
+                    SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().imePadding().padding(bottom = 72.dp)) { data ->
+                        Snackbar(data, containerColor = p.ink, contentColor = p.background, actionColor = p.background, dismissActionContentColor = p.background, shape = RoundedCornerShape(10.dp))
                     }
                 }
+                footer()
             }
-            SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().imePadding().padding(bottom = 72.dp)) { data ->
-                Snackbar(data, containerColor = p.ink, contentColor = p.background, actionColor = p.background, dismissActionContentColor = p.background, shape = RoundedCornerShape(10.dp))
-            }
-        }
-        footer()
-        }
         }
     }
 }
 
-/** The screen on top of the calendar, how many screens are open, and whether it must appear without a fade. */
-private data class ScreenLayer(val screen: Screen?, val depth: Int, val instant: Boolean)
-
-private enum class ScreenMotion { Enter, Return, Cut }
-
-/**
- * Screens fade over an opaque screen below them. Entering or leaving the calendar is a cut, so opening a destination
- * never spends its fade on an empty cover and the calendar never shows through a half faded screen.
- */
-private fun screenMotion(from: ScreenLayer, to: ScreenLayer, motion: Boolean): ScreenMotion = when {
-    !motion || to.instant || to.screen == null || from.screen == null -> ScreenMotion.Cut
-    to.depth >= from.depth -> ScreenMotion.Enter
-    else -> ScreenMotion.Return
+private fun Screen.savedKey(depth: Int): String = "$depth:" + when (this) {
+    is Screen.Details -> "details:" + event.key()
+    else -> javaClass.name
 }
-
-private fun AnimatedContentTransitionScope<ScreenLayer>.screenTransition(from: ScreenLayer, to: ScreenLayer, motion: Boolean): ContentTransform =
-    when (screenMotion(from, to, motion)) {
-        ScreenMotion.Enter -> ContentTransform(fadeIn(tween(180)), ExitTransition.KeepUntilTransitionsFinished, targetContentZIndex = 1f, sizeTransform = null)
-        ScreenMotion.Return -> ContentTransform(EnterTransition.None, fadeOut(tween(150)), targetContentZIndex = -1f, sizeTransform = null)
-        ScreenMotion.Cut -> ContentTransform(EnterTransition.None, ExitTransition.None, sizeTransform = null)
-    }
 
 @Composable
 private fun ComputerWelcome(vm: SunlithViewModel) {

@@ -6,8 +6,8 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.LocalActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -20,7 +20,6 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.sp
@@ -100,50 +99,31 @@ fun isDarkTheme(themeMode: String): Boolean = when (themeMode) {
 }
 
 @Composable
-fun SunlithTheme(themeMode: String, materialYou: Boolean = true, content: @Composable () -> Unit) {
+fun SunlithTheme(themeMode: String, content: @Composable () -> Unit) {
     val dark = isDarkTheme(themeMode)
     val p = if (dark) DarkPalette else LightPalette
-    val neutralScheme = if (dark) {
-        darkColorScheme(
-            primary = p.accent, onPrimary = p.onAccent,
-            primaryContainer = p.raised, onPrimaryContainer = p.ink,
-            secondary = p.muted, onSecondary = p.onAccent,
-            secondaryContainer = p.raised, onSecondaryContainer = p.ink,
-            tertiary = p.muted, onTertiary = p.onAccent,
-            background = p.background, onBackground = p.ink,
-            surface = p.background, onSurface = p.ink,
-            surfaceVariant = p.raised, onSurfaceVariant = p.muted,
-            surfaceTint = Color.Transparent,
-            outline = p.faint, outlineVariant = p.line,
-            error = p.danger, onError = p.onAccent,
-            surfaceContainerLowest = p.background, surfaceContainerLow = p.surface,
-            surfaceContainer = p.surface, surfaceContainerHigh = Color(0xFF1B1B1B),
-            surfaceContainerHighest = p.raised, surfaceBright = p.raised, surfaceDim = p.background,
-            inverseSurface = p.ink, inverseOnSurface = p.background, inversePrimary = p.onAccent,
-        )
-    } else {
-        lightColorScheme(
-            primary = p.accent, onPrimary = p.onAccent,
-            primaryContainer = p.raised, onPrimaryContainer = p.ink,
-            secondary = p.muted, onSecondary = p.onAccent,
-            secondaryContainer = p.raised, onSecondaryContainer = p.ink,
-            tertiary = p.muted, onTertiary = p.onAccent,
-            background = p.background, onBackground = p.ink,
-            surface = p.background, onSurface = p.ink,
-            surfaceVariant = p.raised, onSurfaceVariant = p.muted,
-            surfaceTint = Color.Transparent,
-            outline = p.faint, outlineVariant = p.line,
-            error = p.danger, onError = p.onAccent,
-            surfaceContainerLowest = p.surface, surfaceContainerLow = p.surface,
-            surfaceContainer = p.surface, surfaceContainerHigh = p.surface,
-            surfaceContainerHighest = p.raised, surfaceBright = p.surface, surfaceDim = p.raised,
-            inverseSurface = p.ink, inverseOnSurface = p.background, inversePrimary = p.onAccent,
-        )
-    }
-    val scheme = if (materialYou && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+    val neutralScheme = (if (dark) darkColorScheme() else lightColorScheme()).copy(
+        primary = p.accent, onPrimary = p.onAccent,
+        primaryContainer = p.raised, onPrimaryContainer = p.ink,
+        secondary = p.muted, onSecondary = p.onAccent,
+        secondaryContainer = p.raised, onSecondaryContainer = p.ink,
+        tertiary = p.muted, onTertiary = p.onAccent,
+        background = p.background, onBackground = p.ink,
+        surface = p.background, onSurface = p.ink,
+        surfaceVariant = p.raised, onSurfaceVariant = p.muted,
+        surfaceTint = Color.Transparent,
+        outline = p.faint, outlineVariant = p.line,
+        error = p.danger, onError = p.onAccent,
+        surfaceContainerLowest = if (dark) p.background else p.surface, surfaceContainerLow = p.surface,
+        surfaceContainer = p.surface, surfaceContainerHigh = if (dark) Color(0xFF1B1B1B) else p.surface,
+        surfaceContainerHighest = p.raised, surfaceBright = if (dark) p.raised else p.surface,
+        surfaceDim = if (dark) p.background else p.raised,
+        inverseSurface = p.ink, inverseOnSurface = p.background, inversePrimary = p.onAccent,
+    )
+    val scheme = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         if (dark) dynamicDarkColorScheme(LocalContext.current) else dynamicLightColorScheme(LocalContext.current)
     } else neutralScheme
-    val palette = if (materialYou && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+    val palette = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         SunlithPalette(
             background = scheme.background,
             surface = scheme.surfaceContainerLow,
@@ -162,9 +142,6 @@ fun SunlithTheme(themeMode: String, materialYou: Boolean = true, content: @Compo
         MaterialTheme(colorScheme = scheme, typography = SunlithTypography, content = content)
     }
 }
-
-val SectionLabel = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.6.sp,
-    textDirection = TextDirection.ContentOrLtr)
 
 fun eventTint(argb: Int, palette: SunlithPalette): Color {
     if (argb == 0) return palette.muted

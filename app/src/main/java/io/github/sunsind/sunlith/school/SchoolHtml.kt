@@ -19,7 +19,6 @@ internal data class HtmlForm(val action: String, val inputs: List<Map<String, St
 internal object SchoolHtml {
     const val MAX_HTML = 2_000_000
     private val RAW = setOf("script", "style", "noscript", "template", "iframe", "object", "embed", "svg", "math", "textarea", "title")
-    private val VOID = setOf("br", "img", "input", "hr", "meta", "link", "frame", "area", "base", "col", "wbr", "source")
     private val BLOCK = setOf("div", "tr", "table", "ul", "ol", "dl", "dt", "dd", "section", "article", "header", "footer", "center", "form", "tbody", "thead")
     private val PARAGRAPH = setOf("p", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre")
 

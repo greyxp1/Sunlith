@@ -56,10 +56,14 @@ internal class SchoolPortalClient(address: String, private val language: String,
             SchoolSource.absences(request("api/coursAnnules?DateDebut=${SchoolSource.wireDate(monday)}", token, true) as JSONArray, monday, zone)
         }
         val merged = SchoolSource.merge(agenda, absences, term).toMutableList()
+        val byId = merged.withIndex().associate { it.value.id to it.index }.toMutableMap()
         if (incremental) previous.filter { it.teacherAbsent && it.date.isBefore(thisMonday) && !it.date.isBefore(term.start) && !it.date.isAfter(term.end) }.forEach { old ->
-            val index = merged.indexOfFirst { it.id == old.id && it.classMatch == old.classMatch }
-            if (index >= 0) merged[index] = merged[index].copy(teacherAbsent = true, notes = (merged[index].notes + old.notes).distinct())
-            else if (old.kind == "absence" && merged.none { it.id == old.id }) merged += old
+            val index = byId[old.id]
+            if (index != null && merged[index].classMatch == old.classMatch) merged[index] = merged[index].copy(teacherAbsent = true, notes = (merged[index].notes + old.notes).distinct())
+            else if (old.kind == "absence" && index == null) {
+                byId[old.id] = merged.size
+                merged += old
+            }
         }
         return SchoolFeed(account, term, merged.sortedWith(compareBy<SchoolItem> { it.startMillis }.thenBy { it.id }))
     }
