@@ -10,13 +10,13 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
 
-internal class DeviceLinkPairing(val tokenSha256: ByteArray, val calendarIds: Set<Long>, val pairedAtMillis: Long?)
+internal class DeviceLinkPairing(val tokenSha256: ByteArray, val calendarIds: Set<Long>)
 
 internal data class OperationRecord(val key: String, val payloadHash: String, val eventId: Long)
 
 /**
  * Pairing scope, create_event journal and the time of the last successful request. Only a SHA-256 of the token is stored,
- * in noBackupFilesDir. Pairing files written before pairedAt existed load with a null pairedAtMillis.
+ * in noBackupFilesDir.
  */
 internal object DeviceLinkStore {
     private const val MAX_OPERATIONS = 2000
@@ -43,14 +43,13 @@ internal object DeviceLinkStore {
         require(calendarIds.isNotEmpty() && calendarIds.all { it > 0 }) { "Choose at least one calendar." }
         val bytes = ByteArray(32).also(SecureRandom()::nextBytes)
         val token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
-        val pairing = DeviceLinkPairing(sha256(token.toByteArray(Charsets.US_ASCII)), calendarIds.toSet(), System.currentTimeMillis())
+        val pairing = DeviceLinkPairing(sha256(token.toByteArray(Charsets.US_ASCII)), calendarIds.toSet())
         synchronized(lock) {
             forgetLastSuccess(context)
             write(file(context, PAIRING), DeviceLinkJson.write(linkedMapOf(
                 "version" to 1,
                 "tokenSha256" to pairing.tokenSha256.toHexString(),
                 "calendarIds" to pairing.calendarIds.sorted().map(Long::toString),
-                "pairedAt" to pairing.pairedAtMillis,
             )))
             cached = pairing
             loaded = true
@@ -133,8 +132,7 @@ internal object DeviceLinkStore {
         val hash = (root["tokenSha256"] as String).also { require(Regex("[0-9a-f]{64}").matches(it)) }
         val ids = (root["calendarIds"] as List<*>).map { (it as String).toLong().also { id -> require(id > 0) } }.toSet()
         require(ids.isNotEmpty())
-        val pairedAt = (root["pairedAt"] as? Long)?.takeIf { it > 0 }
-        DeviceLinkPairing(hash.hexToByteArray(), ids, pairedAt)
+        DeviceLinkPairing(hash.hexToByteArray(), ids)
     } catch (_: Exception) {
         null
     }

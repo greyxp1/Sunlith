@@ -4,6 +4,16 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val companionAssetsDir = layout.buildDirectory.dir("generated/companionAssets")
+val companionAssets = tasks.register<Sync>("syncCompanionAssets") {
+    from(rootProject.file("integrations/mcp")) {
+        include("package.json", "src/*.js")
+        into("companion")
+    }
+    into(companionAssetsDir)
+}
+tasks.matching { it.name == "preBuild" }.configureEach { dependsOn(companionAssets) }
+
 android {
     namespace = "io.github.sunsind.sunlith"
     compileSdk = 36
@@ -30,6 +40,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures { compose = true }
+    sourceSets["main"].assets.srcDir(companionAssetsDir)
     packaging { resources.excludes += setOf("META-INF/LICENSE*", "META-INF/NOTICE*") }
     lint { error += "UnusedResources" }
 }

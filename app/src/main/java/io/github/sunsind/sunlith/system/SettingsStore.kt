@@ -18,6 +18,7 @@ class SettingsStore(context: Context) {
     internal var notificationStepDone by uiPrefs.bool("notify_asked", false)
     internal var aiIntroDone by uiPrefs.bool("ai_intro_done", false)
     internal var computerSetupRequested by uiPrefs.bool("computer_setup_requested", false)
+    internal var computerAccessEnabled by prefs.bool("computer_access_enabled", false)
 
     var courseColorSlots: Map<String, Int>
         get() = runCatching {

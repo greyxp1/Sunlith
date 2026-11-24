@@ -15,9 +15,10 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import io.github.sunsind.sunlith.calendarTaskIntent
 import io.github.sunsind.sunlith.R
+import io.github.sunsind.sunlith.system.SettingsStore
 import java.util.concurrent.Executors
 
-/** Foreground service that keeps the HTTPS phone link open while the user wants it. Never restarted by the system or at boot. */
+/** Foreground service that keeps the HTTPS phone link open while access is enabled. */
 class DeviceLinkService : Service() {
     private var server: DeviceLinkServer? = null
     @Volatile private var destroyed = false
@@ -26,9 +27,11 @@ class DeviceLinkService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            SettingsStore(this).computerAccessEnabled = false
             lifecycle.execute {
                 server?.stop()
                 server = null
+                SettingsStore(this).computerAccessEnabled = false
                 DeviceLink.update(DeviceLinkState(false, null))
                 Handler(Looper.getMainLooper()).post {
                     // A later Start command keeps this instance alive and reopens the server in queue order.
@@ -60,6 +63,7 @@ class DeviceLinkService : Service() {
             try {
                 created.start()
                 server = created
+                SettingsStore(this).computerAccessEnabled = true
                 DeviceLink.update(DeviceLinkState(true, null))
             } catch (_: Exception) {
                 created.stop()

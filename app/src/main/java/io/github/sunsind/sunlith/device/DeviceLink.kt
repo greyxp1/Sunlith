@@ -7,6 +7,7 @@ import androidx.annotation.StringRes
 import androidx.core.content.ContextCompat
 import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.data.CalendarRepository
+import io.github.sunsind.sunlith.system.SettingsStore
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,32 +21,15 @@ data class DeviceLinkState(val running: Boolean = false, @param:StringRes val er
 enum class DeviceLinkAddressKind { TAILSCALE, VPN, LOCAL_NETWORK }
 data class DeviceLinkAddress(val host: String, val kind: DeviceLinkAddressKind)
 
-/**
- * [pairedAtMillis] is null when not paired or for pairings made before this was saved. [lastSuccessMillis] is the last time
- * the current pairing got a successful answer; it is not proof the computer is connected now. Both clear on unpair or re-pair.
- */
-data class DeviceLinkDiagnostics(val pairedAtMillis: Long?, val lastSuccessMillis: Long?)
-
 object DeviceLink {
     const val PORT = 39393
     private val mutableState = MutableStateFlow(DeviceLinkState())
     val state: StateFlow<DeviceLinkState> = mutableState.asStateFlow()
     private val mutableActivity = MutableStateFlow(0L)
 
-    /** Increases whenever [history] or [diagnostics] may have changed. Collect it and read both again off the main thread. */
-    val activity: StateFlow<Long> = mutableActivity.asStateFlow()
+    internal val activity: StateFlow<Long> = mutableActivity.asStateFlow()
 
-    /** Latest computer changes, newest first, at most 100. Reads a small file the first time, so call it off the main thread. */
-    fun history(context: Context): List<DeviceLinkChange> = DeviceLinkHistory.entries(context.applicationContext)
-
-    /** Deletes the local change list; call it off the main thread. Unpairing, stopping or restarting never does this. */
-    fun clearHistory(context: Context) = DeviceLinkHistory.clear(context.applicationContext)
-
-    /** Reads small files the first time, so call it off the main thread. */
-    fun diagnostics(context: Context): DeviceLinkDiagnostics {
-        val app = context.applicationContext
-        return DeviceLinkDiagnostics(DeviceLinkStore.pairing(app)?.pairedAtMillis, DeviceLinkStore.lastSuccess(app))
-    }
+    internal fun lastRequest(context: Context): Long? = DeviceLinkStore.lastSuccess(context.applicationContext)
 
     fun start(context: Context) {
         val app = context.applicationContext
@@ -59,12 +43,17 @@ object DeviceLink {
 
     fun stop(context: Context) {
         val app = context.applicationContext
+        SettingsStore(app).computerAccessEnabled = false
         try {
             app.startService(Intent(app, DeviceLinkService::class.java).setAction(DeviceLinkService.ACTION_STOP))
         } catch (_: IllegalStateException) {
             app.stopService(Intent(app, DeviceLinkService::class.java))
         }
         update(DeviceLinkState(false, null))
+    }
+
+    internal fun restoreAfterUpdate(context: Context) {
+        if (SettingsStore(context).computerAccessEnabled && DeviceLinkStore.pairing(context) != null) start(context)
     }
 
     fun addresses(context: Context): List<String> = DeviceLinkNetwork.addresses(context.applicationContext)
@@ -91,7 +80,6 @@ object DeviceLink {
         )), Charsets.UTF_8)
     }
 
-    /** Removes the pairing, pairing time and last success time. The change history stays until [clearHistory]. */
     @Synchronized
     fun revoke(context: Context) {
         check(Looper.myLooper() != Looper.getMainLooper()) { "Revoking must run off the main thread." }

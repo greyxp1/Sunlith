@@ -24,7 +24,7 @@ import io.github.sunsind.sunlith.ui.SunlithWindow
 
 /** Each full-page settings entry has a window, so Android owns opening and returning. */
 class SettingsActivity : ComponentActivity() {
-    internal enum class Page { Settings, Calendars, Computer, History, Diagnostics, School, Messages, Notices, Message }
+    internal enum class Page { Settings, Calendars, Computer, School, Messages, Notices, Message }
 
     private val vm: SunlithViewModel by viewModels()
 
@@ -43,10 +43,7 @@ class SettingsActivity : ComponentActivity() {
                 when (page) {
                     Page.Settings -> SettingsScreen(vm)
                     Page.Calendars -> CalendarsScreen(vm)
-                    Page.Computer, Page.History, Page.Diagnostics -> DeviceLinkScreen(
-                        vm,
-                        page = page, onOpenPage = { open(this, it) },
-                    )
+                    Page.Computer -> DeviceLinkScreen(vm)
                     Page.School -> {
                         val controller = SchoolScheduleManager.get(applicationContext)
                         LaunchedEffect(controller) { controller.onOpen() }

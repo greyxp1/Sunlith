@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="connection_setup_step3_local_body">Touchez Connecter l’ordinateur et envoyez le fichier à votre ordinateur. Terminez avec le guide ci-dessous.</string>
-    <string name="connection_setup_connect_computer">Connecter l’ordinateur</string>
-    <string name="connection_setup_share_again">Partager de nouveau le fichier de connexion</string>
+    <string name="connection_setup_connect_computer">Partager le fichier de configuration</string>
     <string name="connection_setup_share_title">Envoyer à votre ordinateur</string>
-    <string name="connection_setup_step1_title">1. Connectez ce téléphone et votre ordinateur</string>
-    <string name="connection_setup_step1_body">Activez Tailscale sur les deux appareils avec le même compte, ou connectez-les au même Wi-Fi.</string>
-    <string name="connection_setup_step2_title">2. Choisissez les calendriers</string>
-    <string name="connection_setup_step2_body">Votre ordinateur peut accéder uniquement aux calendriers choisis ici, indépendamment des calendriers affichés dans Sunlith. Cet accès reste actif jusqu’au retrait du jumelage.</string>
-    <string name="connection_setup_step3_title">3. Envoyez le fichier de connexion</string>
-    <string name="connection_setup_step3_body">Touchez Connecter l’ordinateur. Choisissez Tailscale, puis votre ordinateur dans la liste de partage. Terminez avec le guide ci-dessous.</string>
-    <string name="connection_setup_address_one">Ce téléphone : %1$s (%2$s)</string>
-    <string name="connection_setup_address_tailscale">VPN (plage Tailscale)</string>
-    <string name="connection_setup_address_wifi">Réseau local</string>
+    <string name="connection_setup_step1_body">Connectez les deux appareils au même Wi-Fi ou activez Tailscale sur les deux.</string>
+    <string name="connection_setup_step2_title">Choisissez les calendriers à partager</string>
+    <string name="connection_setup_address_tailscale">Tailscale</string>
+    <string name="connection_setup_address_wifi">Wi-Fi</string>
     <string name="connection_setup_address_other_vpn">VPN</string>
-    <string name="connection_setup_paired_body">Votre ordinateur peut utiliser les calendriers ci-dessous quand la connexion est active.</string>
+    <string name="connection_setup_command">Configurer sur votre ordinateur</string>
+    <string name="connection_setup_other_client">Autre client MCP</string>
+    <string name="connection_setup_terminal">Ouvrez un terminal dans le dossier contenant sunlith-computer.zip. Node.js 22 ou une version ultérieure est requis.</string>
+    <string name="connection_setup_windows">Ouvrez PowerShell dans le dossier contenant sunlith-computer.zip. Node.js 22 ou une version ultérieure est requis.</string>
+    <string name="connection_setup_test">Démarrez une nouvelle session de l’assistant et demandez-lui d’afficher vos calendriers.</string>
+    <string name="connection_setup_json">Ajoutez l’entrée sunlith affichée par la commande aux paramètres MCP de votre client. Demandez ensuite au client d’afficher vos calendriers.</string>
+    <string name="connection_setup_copy">Copier la commande</string>
+    <string name="connection_setup_command_hint">Partager le fichier de configuration ou copier une commande</string>
 </resources>

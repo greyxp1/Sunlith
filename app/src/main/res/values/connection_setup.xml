@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="connection_setup_step3_local_body">Tap Connect computer and send the file to your computer. Finish with the computer setup guide below.</string>
-    <string name="connection_setup_connect_computer">Connect computer</string>
-    <string name="connection_setup_share_again">Share connection file again</string>
+    <string name="connection_setup_connect_computer">Share setup file</string>
     <string name="connection_setup_share_title">Send to your computer</string>
-    <string name="connection_setup_step1_title">1. Connect this phone and your computer</string>
-    <string name="connection_setup_step1_body">Turn on Tailscale on both devices using the same account, or connect both to the same Wi-Fi.</string>
-    <string name="connection_setup_step2_title">2. Choose calendars</string>
-    <string name="connection_setup_step2_body">Your computer can access only the calendars you select here, independently of the calendars shown in Sunlith. Access stays until you unpair.</string>
-    <string name="connection_setup_step3_title">3. Send the connection file</string>
-    <string name="connection_setup_step3_body">Tap Connect computer. Choose Tailscale, then your computer in the share list. Finish with the computer setup guide below.</string>
-    <string name="connection_setup_address_one">This phone: %1$s (%2$s)</string>
-    <string name="connection_setup_address_tailscale">VPN (Tailscale range)</string>
-    <string name="connection_setup_address_wifi">Local network</string>
+    <string name="connection_setup_step1_body">Put both devices on the same Wi-Fi or turn on Tailscale on both.</string>
+    <string name="connection_setup_step2_title">Choose calendars to share</string>
+    <string name="connection_setup_address_tailscale">Tailscale</string>
+    <string name="connection_setup_address_wifi">Wi-Fi</string>
     <string name="connection_setup_address_other_vpn">VPN</string>
-    <string name="connection_setup_paired_body">Your computer can use the calendars below while the connection is on.</string>
+    <string name="connection_setup_command">Set up on your computer</string>
+    <string name="connection_setup_other_client">Other MCP client</string>
+    <string name="connection_setup_terminal">Open a terminal in the folder with sunlith-computer.zip. Requires Node.js 22 or newer.</string>
+    <string name="connection_setup_windows">Open PowerShell in the folder with sunlith-computer.zip. Requires Node.js 22 or newer.</string>
+    <string name="connection_setup_test">Start a new assistant session and ask it to list your calendars.</string>
+    <string name="connection_setup_json">Add the sunlith entry from the command output to your client’s MCP settings. Then ask your client to list your calendars.</string>
+    <string name="connection_setup_copy">Copy command</string>
+    <string name="connection_setup_command_hint">Share the setup file or copy a command</string>
 </resources>

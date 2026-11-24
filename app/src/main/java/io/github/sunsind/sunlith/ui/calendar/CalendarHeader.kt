@@ -182,6 +182,7 @@ internal fun BottomBar(
     val morph = vm.searchMorph
     var armedAxis by remember { mutableIntStateOf(0) }
     val searchCatch by animateFloatAsState(if (armedAxis == 2) 1f else 0f, spring(stiffness = 520f))
+    val viewCatch by animateFloatAsState(if (armedAxis == 2) 0f else armedAxis.toFloat(), spring(stiffness = 700f))
     val stepView by rememberUpdatedState(onStepView)
     val dragView by rememberUpdatedState(onDragView)
     val haptics = LocalHapticFeedback.current
@@ -194,6 +195,7 @@ internal fun BottomBar(
     val travel = LocalWindowInfo.current.containerSize.width.coerceAtLeast(1).toFloat()
     val direction = if (rtl) 1f else -1f
     val activation = with(density) { 76.dp.toPx() }
+    val viewActivation = with(density) { 58.dp.toPx() }
     val retreat = with(density) { 26.dp.toPx() }
     val catchDistance = with(density) { 24.dp.toPx() }
     val margin = with(density) { SEARCH_BAR_MARGIN.roundToPx() }
@@ -249,7 +251,7 @@ internal fun BottomBar(
     Box(
         // Hidden under search's own bar while search is fully open. Pulled down, it takes over from that bar.
         modifier
-            .pointerInput(rtl, travel, activation, retreat, haptics, hostView) {
+            .pointerInput(rtl, travel, activation, viewActivation, retreat, haptics, hostView) {
                 // Read before the buttons on the toolbar, so a swipe that starts on one takes the touch from it and never
                 // also presses it.
                 awaitEachGesture {
@@ -260,7 +262,7 @@ internal fun BottomBar(
                     val from = morph.progress
                     var sideways: Boolean? = null
                     var released = false
-                    val viewLatch = PillGestureLatch(activation, retreat)
+                    val viewLatch = PillGestureLatch(viewActivation, retreat)
                     val searchLatch = PillGestureLatch(activation, retreat, fixedThreshold = true)
                     var armed = 0
                     var lastMove = down.uptimeMillis
@@ -300,7 +302,7 @@ internal fun BottomBar(
                             armedAxis = if (!across && next > 0) 2 else next
                             if (across) {
                                 // The latch controls release and haptics. A reversal keeps the page under the finger.
-                                val pagePull = (abs(distance) - activation).coerceAtLeast(0f) * kotlin.math.sign(distance) / travel
+                                val pagePull = (abs(distance) - viewActivation).coerceAtLeast(0f) * kotlin.math.sign(distance) / travel
                                 dragView(distance / travel, pagePull)
                             } else {
                                 val resisted = searchPullDistance(distance, activation)
@@ -320,7 +322,7 @@ internal fun BottomBar(
                             val speed = velocity.x / travel * direction
                             val pull = (abs(total.x) - viewConfiguration.touchSlop).coerceAtLeast(0f)
                             val step = if (total.x * direction > 0f) 1 else -1
-                            val flick = armed == 0 && pull >= activation * 0.30f && step * speed >= 0.85f &&
+                            val flick = armed == 0 && pull >= viewActivation * 0.30f && step * speed >= 0.85f &&
                                 pull + abs(velocity.x) * 0.08f >= viewLatch.threshold
                             if (flick) haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
                             stepView(if (flick) step else armed, speed)
@@ -340,7 +342,7 @@ internal fun BottomBar(
                 }
             }
             .graphicsLayer {
-                translationX = pillDrag() * (1f - morph.progress) * direction * 40.dp.toPx()
+                translationX = (pillDrag() * 40.dp.toPx() + viewCatch * 8.dp.toPx()) * (1f - morph.progress) * direction
                 translationY = -climb() * morph.progress
                 alpha = if (searching && morph.progress >= 1f) 0f else 1f
             }

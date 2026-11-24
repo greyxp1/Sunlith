@@ -11,6 +11,7 @@ import android.os.Build
 import androidx.core.content.pm.PackageInfoCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.sunsind.sunlith.device.DeviceLink
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -540,6 +541,7 @@ class AppUpdateCleanupReceiver : BroadcastReceiver() {
         val result = goAsync()
         val app = context.applicationContext
         Thread {
+            runCatching { DeviceLink.restoreAfterUpdate(app) }
             runCatching { AppUpdater(app).cleanUpAfterReplace() }
             result.finish()
         }.start()
