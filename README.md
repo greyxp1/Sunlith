@@ -37,9 +37,9 @@
 
 ## Your calendar
 
-- **Month, Week and Day.** Hold a tab to change its layout. Scroll through Week in 3, 5 or 7 day views and pinch to zoom.
+- **Month, Week and Day.** Swipe the bottom toolbar sideways to switch views, or up to search. Pinch Week sideways to show three, five or seven days, and pinch vertically to zoom the timeline.
 - **Events and tasks.** Add reminders or repeating events, search your calendar, and mark events as tasks. See what’s coming up in the agenda widget.
-- **Appearance.** Choose light, dark or wallpaper colors, adjust the timeline tint, and use Sunlith in English or French.
+- **Appearance.** Follow the system theme or choose light or dark. Sunlith uses wallpaper colors on supported Android versions and is available in English or French.
 
 <details>
 <summary>Preview the app icons</summary>
@@ -48,7 +48,7 @@
 | :---: | :---: |
 | <picture><img src="docs/media/sunlith-logo.svg" alt="Light app icon" width="64" /></picture> | <picture><img src="docs/media/sunlith-logo-dark.svg" alt="Dark app icon" width="64" /></picture> |
 
-Pick one in Settings > Appearance > App icon.
+Pick one in Settings > App icon.
 
 </details>
 
@@ -58,99 +58,47 @@ Set this up once, then ask your assistant to add, move or remove events on your 
 
 You'll need an assistant installed on your computer, such as the [Codex CLI](https://developers.openai.com/codex/cli/) or [Claude Code](https://code.claude.com/docs/en/setup).
 
-### 1. Install the companion
+### 1. Install Node.js
 
-1. Install [Node.js](https://nodejs.org/) version 22 or newer on your computer.
-2. Download the **Sunlith companion ZIP** from the [latest release](https://github.com/SunSinD/Sunlith/releases/latest) and extract it. Open the extracted folders until you see `START-HERE.md`. From there, open `integrations/mcp`. You should see `package.json`.
-3. Open a terminal in that folder. On Windows, click the File Explorer address bar, type `cmd` and press Enter. On macOS or Linux, open Terminal, type `cd` followed by a space, then drag the `mcp` folder into the window or paste its full path in quotes. Press Enter. Run this and wait for it to finish.
-
-   ```sh
-   npm ci
-   ```
+Install [Node.js](https://nodejs.org/) version 22 or newer on your computer. The phone supplies the companion in the next step.
 
 ### 2. Pair your phone
 
-1. Put your phone and computer on the same home WiFi. If you use Tailscale, turn it on on both devices with the same account instead.
-2. In Sunlith, open **Settings > Computer connection**. Check the calendar you want your assistant to use, then tap **Connect computer**.
-3. Send the file privately to your computer using the share menu. If you use Tailscale, select it and pick your computer. Quick Share is another option if it's installed on your Windows computer.
-4. Look for `sunlith-pairing.json` in Downloads after the transfer. Move it to your user folder, outside the extracted companion. On Windows, type `%USERPROFILE%` into the File Explorer address bar to open your user folder. On macOS or Linux, use your home folder. Keep the original filename unless the transfer added a number like `(1)`. Treat the file like a password.
+1. Put your phone and computer on the same Wi-Fi network, or turn on Tailscale on both with the same account.
+2. In Sunlith, open **Settings > Computer connection**, choose the calendars to share, and tap **Share setup file**. Allow notifications if Android asks.
+3. Send `sunlith-computer.zip` privately to your computer. The ZIP contains the companion and the key that grants access to the selected calendars.
 
 ### 3. Add Sunlith to your assistant
 
-Use the terminal you opened in step 1. Pick the command for your assistant. It looks for the pairing file in the user folder from step 2.
-
-<details>
-<summary>Windows commands</summary>
-
-**Codex**
-
-```bat
-codex mcp add sunlith --env "SUNLITH_DEVICE_CONFIG=%USERPROFILE%\sunlith-pairing.json" -- node "%CD%\src\index.js"
-```
-
-**Claude Code**
-
-```bat
-claude mcp add --scope user --env "SUNLITH_DEVICE_CONFIG=%USERPROFILE%\sunlith-pairing.json" --transport stdio sunlith -- node "%CD%\src\index.js"
-```
-
-</details>
-
-<details>
-<summary>macOS and Linux commands</summary>
-
-If you're using Tailscale on Linux, [receive the file](https://tailscale.com/docs/features/taildrop) before continuing.
-
-First, make the pairing file readable only by you.
-
-```sh
-chmod 600 "$HOME/sunlith-pairing.json"
-```
-
-**Codex**
-
-```sh
-codex mcp add sunlith --env "SUNLITH_DEVICE_CONFIG=$HOME/sunlith-pairing.json" -- node "$PWD/src/index.js"
-```
-
-**Claude Code**
-
-```sh
-claude mcp add --scope user --env "SUNLITH_DEVICE_CONFIG=$HOME/sunlith-pairing.json" --transport stdio sunlith -- node "$PWD/src/index.js"
-```
-
-</details>
-
-Using Cursor or another assistant that supports local MCP tools? [See the other setup options](docs/AI-INTEGRATION.md#direct-phone-connection).
+On your computer, open PowerShell on Windows or a terminal on macOS or Linux in the folder containing the ZIP. On your phone, open **Set up on your computer**, select your operating system and assistant, then use **Copy command** and run the command on your computer. For other MCP clients, the command prints the configuration to add to your client. See the [connection reference](docs/AI-INTEGRATION.md#direct-phone-connection) for manual setup.
 
 ### 4. Try it
 
-1. On your phone, tap **Start connection**. Allow notifications if Android asks. When you see **Connection on**, tap **Open calendar**.
-2. Start a new session in your assistant and ask **“Which calendars can you see in Sunlith?”**
-3. Once it lists your calendar, try **“Add dinner at The Keg tomorrow at 6 PM for one hour.”** Open tomorrow in Sunlith to see the event.
+1. Start a new session in your assistant and ask **“Which calendars can you see in Sunlith?”** The phone’s **Last request** shows when it answers.
+2. Once it lists your calendar, try **“Add dinner at The Keg tomorrow at 6 PM for one hour.”** Open tomorrow in Sunlith to see the event.
 
-Next time, make sure both devices are on the same network and the phone says **Connection on**. Use **Stop connection** to pause access, **Unpair computer** to remove it, or **Activity history** to see what changed.
+For later use, keep both devices on the same network and turn on **Allow computer access** if it is off. Turn it off to pause access, or use **Unpair computer** to revoke it.
 
 <details>
 <summary>If it does not connect</summary>
 
 - **The assistant cannot find Sunlith.** Open a new session after setup. Check the registration with `codex mcp list` or `claude mcp list`.
-- **It cannot read the pairing file.** Check the filename and location from step 2. On Windows, use **View > Show > File name extensions** to check that the name ends in `.json` only once. On macOS and Linux, run the `chmod` command from step 3.
-- **It cannot reach your phone.** Check the network and tap **Start connection** if it is off. School or guest WiFi may block the connection. If your phone's WiFi address changed, tap **Unpair computer** and repeat step 2 to replace the old file.
-- **It cannot add events.** Check that the calendar is shared and that you can add an event to it on your phone. If it can add events but you cannot see them, check **Settings > Calendars** in Sunlith.
+- **The setup command cannot find the ZIP.** Run it in the folder containing `sunlith-computer.zip` and check that the filename matches.
+- **The assistant cannot reach your phone.** Check the network and **Allow computer access**. If your phone’s Wi-Fi address changed, unpair and repeat setup with a new ZIP.
+- **The assistant cannot add events.** Check that the calendar is shared and that you can add an event to it on your phone. If the event was added but is hidden, check **Settings > Calendars**.
 
 </details>
 
 ## School schedules
 
-I built this for Col.NET at Collège Montmorency, my own college. It brings classes, schedule changes and college notices into Sunlith. Find it in Settings > Calendars > School schedule.
+I built this for Col.NET at Collège Montmorency, my own college. Connect in **Settings > Calendars > School schedule** to sync classes to the on-device Sunlith calendar. Open **College messages** from the mail icon in the calendar toolbar. Turn on **School alerts** in **Settings > Notifications** for schedule changes, new messages, and sync problems.
 
 Other Col.NET schools can be set up manually. If you’d like me to add support for your school, [open an issue and let me know](https://github.com/SunSinD/Sunlith/issues/new).
 
 ## Build and checks
 
 ```sh
-./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+./gradlew :app:assembleDebug :app:lintDebug
 ```
 
-See [testing](docs/TESTING.md), [architecture](docs/ARCHITECTURE.md), [calendar imports](docs/MIGRATION.md) and the [changelog](CHANGELOG.md). For updates in the app, open Settings > About > Check for updates.
+See [calendar imports](docs/MIGRATION.md). To check for updates in the app, tap **Version** in **Settings**.
