@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckBoxOutlineBlank
@@ -23,11 +24,13 @@ import androidx.compose.material.icons.outlined.Repeat
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -37,6 +40,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
@@ -53,12 +57,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.intl.LocaleList
 import androidx.compose.ui.text.style.Hyphens
 import androidx.compose.ui.text.style.LineBreak
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.data.CalendarEvent
 import io.github.sunsind.sunlith.data.SchoolAbsenceCoverage
+import io.github.sunsind.sunlith.data.examKey
 import io.github.sunsind.sunlith.ui.Formats
 import io.github.sunsind.sunlith.ui.LocalDarkTheme
 import io.github.sunsind.sunlith.ui.timeLabel
@@ -140,10 +147,49 @@ internal fun eventColors(event: CalendarEvent, colors: ColorScheme, dark: Boolea
 
 internal fun CalendarEvent.withTodoMark(title: String) = if (todo) "☐ $title" else title
 
+/** Exam notes by [examKey]. Only the cards that read it recompose when a mark or note changes. */
+internal val LocalExams = compositionLocalOf { emptyMap<String, String>() }
+
+/** The note of a class marked as an exam, empty without one, or null when it is not marked. */
+@Composable
+@ReadOnlyComposable
+internal fun CalendarEvent.exam(): String? = examKey?.let { LocalExams.current[it] }
+
+/** The exam label with its note, as read aloud and shown where a card has room. */
+@Composable
+@ReadOnlyComposable
+internal fun examLabel(note: String): String =
+    listOf(stringResource(R.string.exam_tag), note.trim()).filter { it.isNotEmpty() }.joinToString(", ")
+
+/**
+ * A folded top end corner in the card's [content] color, the exam mark that still shows on the smallest Week and
+ * Month cards. [end] is where the corner sits, leaving room for a stack's rail.
+ */
+internal fun DrawScope.drawExamFlag(content: Color, flag: Float, top: Float = 0f, end: Float = size.width) {
+    val rtl = layoutDirection == LayoutDirection.Rtl
+    val corner = if (rtl) size.width - end else end
+    val inward = if (rtl) flag else -flag
+    drawPath(Path().apply {
+        moveTo(corner, top); lineTo(corner + inward, top); lineTo(corner, top + flag); close()
+    }, content)
+}
+
+/** A filled exam pill in [pill] with its note beside it, for cards with room to name the exam. */
+@Composable
+internal fun ExamBadge(note: String, pill: Color, onPill: Color, noteColor: Color, style: TextStyle, modifier: Modifier = Modifier) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(stringResource(R.string.exam_tag), Modifier.background(pill, CircleShape).padding(horizontal = 6.dp),
+            color = onPill, style = style, fontWeight = FontWeight.Bold, maxLines = 1)
+        if (note.isNotBlank()) Text(note.trim(), Modifier.weight(1f, fill = false), color = noteColor, style = style,
+            maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}
+
 @Composable
 internal fun CalendarEvent.spokenDescription(f: Formats, time: String, includeLocation: Boolean = true): String =
     listOfNotNull(
         displayTitle().ifBlank { stringResource(R.string.untitled) },
+        exam()?.let { examLabel(it) },
         stringResource(R.string.todo_tag).takeIf { todo },
         absenceStatus(this, f), time,
         location.takeIf { includeLocation && it.isNotBlank() },
@@ -399,6 +445,9 @@ internal fun CalendarEventCard(
                     modifier = Modifier.clearAndSetSemantics { })
             }
             if (status != null) AgendaCardText(status, colors.content, typography.bodyMedium, endpoint, "status")
+            event.exam()?.let { note ->
+                ExamBadge(note, colors.content, colors.container, colors.content, typography.labelMedium, Modifier.padding(top = 2.dp))
+            }
         }
         if (event.todo) {
             Icon(Icons.Outlined.CheckBoxOutlineBlank, stringResource(R.string.todo_tag), tint = colors.content,

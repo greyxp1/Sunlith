@@ -29,8 +29,11 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -38,6 +41,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.style.TextOverflow
@@ -48,6 +52,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.data.CalendarEvent
+import io.github.sunsind.sunlith.data.examKey
 import io.github.sunsind.sunlith.ui.Formats
 import io.github.sunsind.sunlith.ui.LocalDarkTheme
 import io.github.sunsind.sunlith.ui.gridStart
@@ -142,6 +147,7 @@ private fun FullMonthCell(
     val context = LocalContext.current
     val courses = LocalCourseColors.current
     val untitled = stringResource(R.string.untitled)
+    val exams = LocalExams.current
     val description = remember(day, isToday, events.size, f) {
         dayDescription(context, f, day, isToday, events.size)
     }
@@ -172,14 +178,16 @@ private fun FullMonthCell(
                 val chipTop = top + numberSize + 2.dp.toPx()
                 val padding = 3.dp.toPx()
                 val rtl = layoutDirection == LayoutDirection.Rtl
+                val flag = 7.dp.toPx()
                 val labels = events.take(slots).map { event ->
                     val colors = eventColors(event, p, dark, courses, dimmed = !inMonth)
                     val title = event.displayTitle().ifBlank { untitled }
+                    val exam = event.examKey in exams
                     val markerWidth = if (event.todo) 10.dp.toPx() else 0f
-                    val width = (available - 2 * padding - markerWidth).toInt().coerceAtLeast(0)
+                    val width = (available - 2 * padding - markerWidth - if (exam) flag / 2 else 0f).toInt().coerceAtLeast(0)
                     val text = measurer.measure(title, chipStyle, maxLines = 1, softWrap = false,
                         overflow = TextOverflow.Visible, constraints = Constraints(maxWidth = width))
-                    Triple(event, colors, text)
+                    ChipLabel(event, colors, text, exam)
                 }
                 val hiddenColors = events.asSequence().drop(slots).take(2)
                     .map { eventColors(it, p, dark, courses, dimmed = !inMonth).container }.toList()
@@ -203,11 +211,14 @@ private fun FullMonthCell(
                             }
                         }
                     }
-                    labels.forEachIndexed { index, (event, colors, text) ->
+                    labels.forEachIndexed { index, (event, colors, text, exam) ->
                         val y = chipTop + index * chip.toPx()
                         val bounds = Rect(Offset(inset, y), Size(available, chipHeight))
                         drawRoundRect(colors.container, bounds.topLeft, bounds.size, CornerRadius(4.dp.toPx()))
                         if (event.canceled) drawCanceledBars(colors.content, bounds.topLeft, bounds.size)
+                        if (exam) clipPath(Path().apply { addRoundRect(RoundRect(bounds, CornerRadius(4.dp.toPx()))) }) {
+                            drawExamFlag(colors.content, flag, y, bounds.right)
+                        }
                         val markerWidth = if (event.todo) 10.dp.toPx() else 0f
                         if (event.todo) {
                             val iconSize = minOf(7.dp.toPx(), chipHeight - 4.dp.toPx()).coerceAtLeast(1f)
@@ -215,8 +226,9 @@ private fun FullMonthCell(
                             drawRoundRect(colors.content, Offset(iconX, y + (chipHeight - iconSize) / 2), Size(iconSize, iconSize),
                                 CornerRadius(1.dp.toPx()), style = Stroke(1.dp.toPx()))
                         }
-                        val left = bounds.left + padding + if (rtl) 0f else markerWidth
-                        val right = bounds.right - padding - if (rtl) markerWidth else 0f
+                        val flagWidth = if (exam) flag / 2 else 0f
+                        val left = bounds.left + padding + if (rtl) flagWidth else markerWidth
+                        val right = bounds.right - padding - if (rtl) markerWidth else flagWidth
                         if (right > left) {
                             val x = if (rtl && !text.didOverflowWidth) right - text.size.width else left
                             clipRect(left, y, right, bounds.bottom) {
@@ -230,3 +242,5 @@ private fun FullMonthCell(
             .semantics { contentDescription = description; selected = isSelected },
     )
 }
+
+private data class ChipLabel(val event: CalendarEvent, val colors: EventColors, val text: TextLayoutResult, val exam: Boolean)

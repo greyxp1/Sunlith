@@ -60,6 +60,7 @@ import io.github.sunsind.sunlith.data.key
 import io.github.sunsind.sunlith.ui.calendar.CalendarScreen
 import io.github.sunsind.sunlith.ui.calendar.CourseColors
 import io.github.sunsind.sunlith.ui.calendar.LocalCourseColors
+import io.github.sunsind.sunlith.ui.calendar.LocalExams
 import io.github.sunsind.sunlith.ui.event.DetailsScreen
 import io.github.sunsind.sunlith.ui.event.EventEditorScreen
 import io.github.sunsind.sunlith.ui.settings.openAppSettings
@@ -137,7 +138,7 @@ internal fun SunlithWindow(
             }
         }
         val courseColors = remember(vm.courseColorSlots) { CourseColors(vm.courseColorSlots) }
-        CompositionLocalProvider(LocalCourseColors provides courseColors) {
+        CompositionLocalProvider(LocalCourseColors provides courseColors, LocalExams provides vm.exams) {
             Column(Modifier.fillMaxSize()) {
                 Box(Modifier.weight(1f).fillMaxWidth().background(p.background)) {
                     content()

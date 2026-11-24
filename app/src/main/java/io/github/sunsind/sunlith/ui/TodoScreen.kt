@@ -15,7 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -39,6 +39,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.sunsind.sunlith.R
@@ -62,16 +63,18 @@ fun TodoScreen(vm: SunlithViewModel) {
             delay(next?.let { (it - value).coerceIn(100L, 30_000L) } ?: 30_000L)
         }
     }
-    val available = vm.todoItems.filter { it.availableAt <= now }
-    val pending = available.filter { it.key !in vm.todoCompleted }.sortedBy { it.availableAt }
-    val completed = available.filter { it.key in vm.todoCompleted }.sortedByDescending { it.availableAt }
+    val (completed, open) = vm.todoItems.partition { it.key in vm.todoCompleted }
+    val (pending, later) = open.sortedBy { it.availableAt }.partition { it.availableAt <= now }
+    // A repeating to-do lists only its next occurrence, rather than a year of them.
+    val upcoming = later.distinctBy { it.series }
+    val done = completed.sortedByDescending { it.availableAt }
 
     Scaffold(
         containerColor = p.canvas,
         topBar = {
             ScreenTopBar(stringResource(R.string.todo_title)) {
-                IconButton(onClick = vm::reloadTodos) {
-                    Icon(Icons.Outlined.Refresh, stringResource(R.string.todo_refresh), tint = p.onSurface)
+                IconButton(onClick = vm::newTodo) {
+                    Icon(Icons.Outlined.Add, stringResource(R.string.todo_add), tint = p.onSurface)
                 }
             }
         },
@@ -95,7 +98,7 @@ fun TodoScreen(vm: SunlithViewModel) {
                 if (vm.todoLoading && vm.todoItems.isEmpty() && vm.todoError == null) {
                     item(key = "loading") { ListLoading() }
                 }
-                if (pending.isEmpty() && vm.todoError == null && !vm.todoLoading) {
+                if (pending.isEmpty() && upcoming.isEmpty() && vm.todoError == null && !vm.todoLoading) {
                     item(key = "empty") {
                         Column(Modifier.padding(horizontal = 8.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(stringResource(R.string.todo_empty), color = p.onSurface, style = MaterialTheme.typography.bodyLarge)
@@ -106,13 +109,22 @@ fun TodoScreen(vm: SunlithViewModel) {
                 items(pending, key = { it.key }) { item ->
                     TodoRow(item, false, f, zone, onComplete = { vm.completeTodo(item, true) }, onOpen = { vm.open(Screen.Details(item.event)) })
                 }
-                if (completed.isNotEmpty()) {
+                if (upcoming.isNotEmpty()) {
+                    item(key = "upcoming") {
+                        Text(stringResource(R.string.todo_upcoming), Modifier.padding(start = 8.dp, top = 12.dp).semantics { heading() },
+                            color = p.onSurfaceVariant, style = MaterialTheme.typography.titleSmall)
+                    }
+                    items(upcoming, key = { it.key }) { item ->
+                        TodoRow(item, false, f, zone, onComplete = { vm.completeTodo(item, true) }, onOpen = { vm.open(Screen.Details(item.event)) })
+                    }
+                }
+                if (done.isNotEmpty()) {
                     item(key = "completed") {
                         TextButton(onClick = { showCompleted = !showCompleted }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                            Text(stringResource(R.string.todo_completed, completed.size), color = p.onSurfaceVariant)
+                            Text(stringResource(R.string.todo_completed, done.size), color = p.onSurfaceVariant)
                         }
                     }
-                    if (showCompleted) items(completed, key = { it.key }) { item ->
+                    if (showCompleted) items(done, key = { it.key }) { item ->
                         TodoRow(item, true, f, zone, onComplete = { vm.completeTodo(item, false) }, onOpen = { vm.open(Screen.Details(item.event)) })
                     }
                 }

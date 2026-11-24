@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="exam_tag">Examen</string>
+    <string name="exam_hint">Enregistré sur cet appareil seulement. L\'horaire scolaire reste inchangé.</string>
+    <string name="exam_note">Matière couverte</string>
+</resources>

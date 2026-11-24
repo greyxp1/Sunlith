@@ -19,7 +19,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -32,6 +34,7 @@ import androidx.compose.material.icons.outlined.EventBusy
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Quiz
 import androidx.compose.material.icons.outlined.Repeat
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.School
@@ -40,6 +43,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -59,18 +63,21 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.data.CalendarEvent
 import io.github.sunsind.sunlith.data.EditBlockReason
 import io.github.sunsind.sunlith.data.EventDraft
 import io.github.sunsind.sunlith.data.TodoMarker
+import io.github.sunsind.sunlith.data.examKey
 import io.github.sunsind.sunlith.data.key
 import io.github.sunsind.sunlith.data.span
 import io.github.sunsind.sunlith.ui.FieldGroup
 import io.github.sunsind.sunlith.ui.Screen
 import io.github.sunsind.sunlith.ui.SunlithViewModel
 import io.github.sunsind.sunlith.ui.calendar.absenceStatus
+import io.github.sunsind.sunlith.ui.calendar.canceled
 import io.github.sunsind.sunlith.ui.calendar.displayTitle
 import io.github.sunsind.sunlith.ui.calendar.eventAccent
 import io.github.sunsind.sunlith.ui.canvas
@@ -223,6 +230,25 @@ fun DetailsScreen(vm: SunlithViewModel, opened: CalendarEvent) {
                             modifier = Modifier.semantics { contentDescription = todoLabel },
                         )
                     }
+                }
+                // A canceled class only offers to clear a mark it already has.
+                val examNote = event.examKey?.let { vm.exams[it] }
+                if (event.examKey != null && (examNote != null || !event.canceled)) DetailRow(Icons.Outlined.Quiz) {
+                    Row(
+                        Modifier.fillMaxWidth().toggleable(examNote != null, role = Role.Switch) { vm.setExam(event, if (it) "" else null) },
+                        horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            PrimaryText(stringResource(R.string.exam_tag))
+                            SecondaryText(stringResource(R.string.exam_hint))
+                        }
+                        Switch(checked = examNote != null, onCheckedChange = null)
+                    }
+                    if (examNote != null) OutlinedTextField(
+                        examNote, { vm.setExam(event, it.take(200)) }, Modifier.fillMaxWidth().padding(top = 8.dp),
+                        label = { Text(stringResource(R.string.exam_note)) }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                    )
                 }
                 if (periods.isNotEmpty()) {
                     DetailRow(Icons.Outlined.LocationOn) {

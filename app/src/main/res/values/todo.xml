@@ -2,13 +2,14 @@
 <resources>
     <string name="todo_title">To-do</string>
     <string name="todo_tag">To-do</string>
-    <string name="todo_tag_hint">Add to your list when this event starts.</string>
-    <string name="todo_tag_series_hint">Add each occurrence to your list when it starts.</string>
-    <string name="todo_empty">Nothing to do right now.</string>
-    <string name="todo_empty_hint">Tag an event as To-do. It appears here when it starts.</string>
+    <string name="todo_tag_hint">Add this event to your list.</string>
+    <string name="todo_tag_series_hint">Add each occurrence to your list.</string>
+    <string name="todo_add">Add to-do</string>
+    <string name="todo_upcoming">Upcoming</string>
+    <string name="todo_empty">Nothing to do.</string>
+    <string name="todo_empty_hint">Tag an event as To-do, or add one here.</string>
     <string name="todo_completed">Completed (%1$d)</string>
     <string name="todo_complete">Mark %1$s as done</string>
     <string name="todo_undo">Mark %1$s as not done</string>
     <string name="todo_retry">Retry</string>
-    <string name="todo_refresh">Refresh</string>
 </resources>

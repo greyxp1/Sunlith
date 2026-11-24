@@ -88,6 +88,9 @@ import kotlinx.coroutines.flow.first
 private const val DAY_MINUTES = 24 * 60
 internal val TIMELINE_LABEL_PADDING = 3.dp
 
+/** The folded corner of an exam, larger than the card corner so it still reads after the card clips it. */
+private val EXAM_FLAG = 12.dp
+
 internal fun CalendarEvent.isTimelineBanner(): Boolean = allDay || endMillis - startMillis >= 86_400_000L
 
 /**
@@ -230,6 +233,7 @@ internal fun AllDayChip(
     val card = if (endpoint == null) bounds else morph.card(bounds, endpoint, day)
     Box(
         card.clip(shape).background(colors.container)
+            .then(if (event.exam() == null) Modifier else Modifier.drawBehind { drawExamFlag(colors.content, EXAM_FLAG.toPx()) })
             .focusRing(highlight, colors.content, shape, motion)
             .calendarTap(colors.content, onClick = onClick)
             .clearAndSetSemantics { contentDescription = description; role = Role.Button; onClick { onClick(); true } }
@@ -351,7 +355,11 @@ private fun EventBlock(
     val context = LocalContext.current
     val typography = MaterialTheme.typography
     val title = event.withTodoMark(event.displayTitle().ifBlank { stringResource(R.string.untitled) })
-    val status = absenceStatus(event, f, compact)
+    val ownExam = event.exam() != null
+    // A stack is flagged when any of its events is an exam. Only its first event names it, since that is the one it shows.
+    val exam = ownExam || more.any { it.exam() != null }
+    val status = listOfNotNull(stringResource(R.string.exam_tag).takeIf { ownExam }, absenceStatus(event, f, compact))
+        .takeIf { it.isNotEmpty() }?.joinToString("\n")
     val ownDescription = event.spokenDescription(f, context.timeLabel(event, day, zone, f))
     val description = if (more.isEmpty()) ownDescription else {
         val count = more.size + 1
@@ -400,13 +408,15 @@ private fun EventBlock(
                 .then(if (now == null) Modifier else Modifier.drawBehind {
                     drawNowBar(nowColor, now * size.height)
                 })
-                .then(if (!canceled && missed.isEmpty() && marks.isEmpty()) Modifier else Modifier.drawBehind {
+                .then(if (!canceled && missed.isEmpty() && marks.isEmpty() && !exam) Modifier else Modifier.drawBehind {
                     val rtl = layoutDirection == LayoutDirection.Rtl
                     // A canceled class is barred across, and a partly canceled one only over the time it loses.
                     if (canceled) drawCanceledBars(colors.content)
                     else missed.forEach { (from, to) ->
                         drawCanceledBars(colors.content, Offset(0f, from * size.height), Size(size.width, (to - from) * size.height))
                     }
+                    if (exam) drawExamFlag(colors.content, EXAM_FLAG.toPx(),
+                        end = size.width - if (marks.isEmpty()) 0f else rail.toPx() + 1.dp.toPx())
                     if (marks.isNotEmpty()) {
                         val railWidth = rail.toPx()
                         val gap = 1.dp.toPx()

@@ -26,11 +26,13 @@ import io.github.sunsind.sunlith.data.DeviceCalendar
 import io.github.sunsind.sunlith.data.EditBlockReason
 import io.github.sunsind.sunlith.data.EventDraft
 import io.github.sunsind.sunlith.data.TodoItem
+import io.github.sunsind.sunlith.data.examKey
 import io.github.sunsind.sunlith.data.indexByDay
 import io.github.sunsind.sunlith.data.key
 import io.github.sunsind.sunlith.data.projectSchoolEvents
 import io.github.sunsind.sunlith.data.span
 import io.github.sunsind.sunlith.system.AppRefresh
+import io.github.sunsind.sunlith.system.ExamStore
 import io.github.sunsind.sunlith.system.LauncherIcons
 import io.github.sunsind.sunlith.system.SettingsStore
 import io.github.sunsind.sunlith.system.TodoStore
@@ -48,6 +50,7 @@ import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.YearMonth
 import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import java.util.TimeZone
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KMutableProperty0
@@ -183,6 +186,26 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
     fun completeTodo(item: TodoItem, completed: Boolean) {
         todoStore.setCompleted(item.key, completed)
         todoCompleted = if (completed) todoCompleted + item.key else todoCompleted - item.key
+    }
+
+    private val examStore = ExamStore(app)
+    /** Exam notes by [examKey]. A marked class without a note maps to an empty note. */
+    var exams by mutableStateOf(examStore.all()); private set
+
+    /** Marks the class as an exam with [note], or clears the mark when [note] is null. */
+    fun setExam(event: CalendarEvent, note: String?) {
+        val key = event.examKey ?: return
+        examStore.set(key, note)
+        exams = if (note == null) exams - key else exams + (key to note)
+    }
+
+    /** A new to-do starting now, so it is pending as soon as it is saved. */
+    fun newTodo() {
+        val start = LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES)
+        val end = minOf(start.plusHours(1), start.toLocalDate().atTime(LocalTime.of(23, 59)))
+        newEvent(start.toLocalDate())
+        editor = editor?.copy(todo = true, startTime = start.toLocalTime(), endDate = end.toLocalDate(), endTime = end.toLocalTime())
+        editorInitial = editor
     }
 
     fun setEventTodo(event: CalendarEvent, enabled: Boolean) {

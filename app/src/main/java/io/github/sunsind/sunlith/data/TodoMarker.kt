@@ -42,7 +42,10 @@ object TodoMarker {
     }
 }
 
-data class TodoItem(val event: CalendarEvent, val key: String, val availableAt: Long)
+data class TodoItem(val event: CalendarEvent, val key: String, val availableAt: Long) {
+    /** The calendar and event or series that [key] belongs to. */
+    val series: String get() = key.split(':', limit = 3).take(2).joinToString(":")
+}
 
 internal object TodoIdentity {
     fun key(event: CalendarEvent, masterId: Long = event.id, recurring: Boolean = !event.rrule.isNullOrBlank(),

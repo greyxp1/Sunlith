@@ -136,6 +136,11 @@ private fun TimelineEventChoice(event: CalendarEvent, f: Formats, openLabel: Str
             if (!event.allDay) Text(time, color = p.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
             event.classroom()?.let { Text(it, color = p.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
             if (status != null) Text(status, color = p.onSurface, style = MaterialTheme.typography.bodySmallEmphasized)
+            event.exam()?.let { note ->
+                val colors = eventColors(event)
+                ExamBadge(note, colors.container, colors.content, p.onSurfaceVariant, MaterialTheme.typography.labelMedium,
+                    Modifier.padding(top = 4.dp))
+            }
         }
         Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, Modifier.padding(start = 4.dp).size(20.dp), tint = p.onSurfaceVariant)
     }

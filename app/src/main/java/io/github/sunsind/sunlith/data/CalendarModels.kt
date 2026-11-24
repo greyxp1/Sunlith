@@ -37,6 +37,16 @@ data class CalendarEvent(
     val todo: Boolean = TodoMarker.has(description)
 }
 
+/**
+ * A school class on its day, the key of its local exam mark. Combined periods and changed times or rooms keep it,
+ * since it leaves out the provider rows and times that a later sync may replace.
+ */
+val CalendarEvent.examKey: String? get() = school?.takeIf { it.kind == "01" && it.course.isNotBlank() }?.let { info ->
+    val day = if (allDay) CalendarDates.allDayDate(startMillis)
+        else Instant.ofEpochMilli(startMillis).atZone(runCatching { ZoneId.of(timeZone) }.getOrDefault(ZoneId.systemDefault())).toLocalDate()
+    listOf(info.course, info.group, info.classKey, info.classKind, day).joinToString("|")
+}
+
 enum class SchoolAbsenceCoverage { NONE, PARTIAL, FULL }
 
 data class SchoolEventPeriod(
