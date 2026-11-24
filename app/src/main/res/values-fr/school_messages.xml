@@ -31,19 +31,13 @@
     <string name="school_admin_status_unavailable">Col.NET n\'est pas disponible pour le moment.</string>
     <string name="school_admin_not_loaded">Les messages de l\'administration ne sont pas encore chargés.</string>
     <string name="school_admin_open_portal">Ouvrir Col.NET</string>
-    <string name="school_admin_portal_links">Liens Col.NET</string>
-    <string name="school_admin_portal_links_sign_in">Col.NET n\'a pas accepté la connexion, donc ses liens n\'ont pas pu être chargés.</string>
-    <string name="school_admin_portal_links_network">Impossible de joindre Col.NET pour charger ses liens. Réessayez ou ouvrez Col.NET.</string>
-    <string name="school_admin_portal_links_unrecognized">Col.NET a répondu d\'une façon que l\'application ne reconnaît pas, donc aucun lien n\'est affiché. Ouvrez plutôt Col.NET.</string>
     <string name="school_admin_classes_marked">Cet avis concerne les cours de cette journée. Vos modifications sont conservées. Vérifiez les exceptions dans l\'avis.</string>
     <string name="school_sync_lifted_title">Cours levé : %1$s</string>
     <string name="school_sync_lifted_note">Levé selon l\'avis du Collège du %1$s. Vérifiez l\'avis pour les exceptions.</string>
     <string name="school_sync_lifted_note_until">Levé jusqu\'à %2$s selon l\'avis du Collège du %1$s. Vérifiez l\'avis pour les exceptions.</string>
-    <string name="school_admin_portal_link_failed">Impossible d\'ouvrir ce lien.</string>
     <string name="school_admin_source">Source : %1$s</string>
     <string name="school_admin_category">Catégorie : %1$s</string>
     <string name="school_admin_posted">Publié le %1$s</string>
-    <string name="school_messages_close">Fermer</string>
     <string name="school_messages_storage">Impossible d\'enregistrer les messages de l\'administration sur ce téléphone.</string>
     <string name="school_alert_administration">Messages de l\'administration</string>
     <plurals name="school_admin_new_messages">
@@ -66,7 +60,5 @@
     <string name="school_inbox_opening">Ouverture du courriel…</string>
     <string name="school_inbox_sign_in">Impossible d’ouvrir une session dans votre boîte de réception Col.NET.</string>
     <string name="school_inbox_network">Impossible de joindre Col.NET pour actualiser vos courriels.</string>
-    <string name="school_mail_opening_link">Ouverture de Col.NET…</string>
-    <string name="school_mail_loading_links">Chargement des liens…</string>
     <string name="school_mail_unread">Courriels non lus</string>
 </resources>

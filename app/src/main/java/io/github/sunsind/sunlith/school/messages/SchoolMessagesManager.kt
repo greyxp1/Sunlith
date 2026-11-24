@@ -6,7 +6,6 @@ import android.util.Log
 import io.github.sunsind.sunlith.school.SCHOOL_JOB_RETRY_DELAY
 import io.github.sunsind.sunlith.school.SchoolError
 import io.github.sunsind.sunlith.school.portal.SchoolClassicPortal
-import io.github.sunsind.sunlith.school.portal.SchoolLogin
 import io.github.sunsind.sunlith.school.portal.SchoolPortalClient
 import io.github.sunsind.sunlith.school.sync.SchoolFailure
 import io.github.sunsind.sunlith.school.sync.SchoolItem
@@ -36,7 +35,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
@@ -136,7 +134,6 @@ internal class SchoolMessagesManager private constructor(private val context: Co
     val state: StateFlow<SchoolMessagesState> = mutableState.asStateFlow()
     val inbox = SchoolInbox(context, ::record)
     @Volatile private var cache: SchoolMessagesCache? = null
-    @Volatile private var session: Pair<String, SchoolLogin>? = null
     @Volatile private var lastAttempt: Long? = null
     @Volatile private var signInBlockedToken: String? = null
     @Volatile private var active: Job? = null
@@ -195,35 +192,8 @@ internal class SchoolMessagesManager private constructor(private val context: Co
         inbox.clear()
         active?.cancel()
         synchronized(SchoolMessagesStore.LOCK) { store.clear(); cache = null }
-        session = null; lastAttempt = null; signInBlockedToken = null
+        lastAttempt = null; signInBlockedToken = null
         mutableState.value = SchoolMessagesState()
-    }
-
-    suspend fun loadPortalLinks(): SchoolPortalLinks = withContext(Dispatchers.IO) {
-        val stamp = generation.get()
-        val record = record()?.takeIf { it.disconnecting == null } ?: return@withContext SchoolPortalLinks.Failed(SchoolAdminStatus.NOT_LOADED)
-        val client = client(record)
-        val result = try {
-            SchoolPortalLinks.Loaded(withTimeout(60_000) { withSession(client, record) { token -> client.portalLinks(token) } }.map { SchoolPortalLink(it.first, it.second) })
-        } catch (e: Exception) {
-            if (e is CancellationException && e !is TimeoutCancellationException) throw e
-            diagnose("links", e)
-            SchoolPortalLinks.Failed(schoolError(e, SchoolError.UNAVAILABLE).adminStatus())
-        }
-        if (stillCurrent(record, stamp) != null) {
-            if (result is SchoolPortalLinks.Loaded) mutableState.value = mutableState.value.copy(portalLinksAvailable = result.links.isNotEmpty())
-            result
-        } else SchoolPortalLinks.Failed(SchoolAdminStatus.NOT_LOADED)
-    }
-
-    suspend fun resolvePortalLink(code: String): String? = withContext(Dispatchers.IO) {
-        val stamp = generation.get()
-        val record = record()?.takeIf { it.disconnecting == null } ?: return@withContext null
-        val client = client(record)
-        val link = withSession(client, record) { token ->
-            if (client.portalLinks(token).none { it.first == code }) null else client.portalLink(token, code)
-        }
-        if (stillCurrent(record, stamp) != null) link else null
     }
 
     private suspend fun sync(force: Boolean, waitForActive: Boolean = false) {
@@ -283,11 +253,6 @@ internal class SchoolMessagesManager private constructor(private val context: Co
             mutex.unlock()
         }
     }
-
-    private suspend fun <T> withSession(client: SchoolPortalClient, record: SchoolRecord, block: suspend (String) -> T): T = client.signedIn(
-        session?.takeIf { it.first == record.account && it.second.expiresAt > System.currentTimeMillis() + 60_000 }?.second?.token
-            ?: record.token.takeIf { record.expiresAt > System.currentTimeMillis() + 60_000 },
-        record.username, record.password, { session = record.account to it }, block)
 
     private fun current(record: SchoolRecord?): SchoolMessagesCache? {
         if (record == null) { store.clear(); return null }

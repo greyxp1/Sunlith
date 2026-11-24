@@ -1,6 +1,5 @@
 package io.github.sunsind.sunlith.school.messages
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,7 +8,6 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -26,7 +24,6 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -53,10 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -74,7 +68,6 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -95,12 +88,6 @@ internal fun SchoolMessagesScreen(
     val section = pager.settledPage
     val noticesList = rememberLazyListState()
     val inboxList = rememberLazyListState()
-    var links by remember { mutableStateOf<List<SchoolPortalLink>?>(null) }
-    var linkFailed by remember { mutableStateOf(false) }
-    var linksProblem by remember { mutableStateOf<SchoolAdminStatus?>(null) }
-    var linksLoading by remember { mutableStateOf(false) }
-    var resolvingLink by remember { mutableStateOf(false) }
-    var portalJob by remember { mutableStateOf<Job?>(null) }
 
     val admin = state.admin.firstOrNull { it.id == messageId }
     val mailId = messageId?.takeIf { it.startsWith("inbox:") }?.removePrefix("inbox:")
@@ -117,19 +104,6 @@ internal fun SchoolMessagesScreen(
         }
     }
     fun openPortal() { state.portalUrl?.let { runCatching { uri.openUri(it) } } }
-    fun dismissLinks() {
-        portalJob?.cancel()
-        links = null
-        linksProblem = null
-        linksLoading = false
-        resolvingLink = false
-    }
-    LifecycleResumeEffect(Unit) {
-        onPauseOrDispose { dismissLinks() }
-    }
-    LaunchedEffect(pager.currentPage) {
-        if (pager.currentPage == INBOX_PAGE) dismissLinks()
-    }
 
     val showingInbox = messageId == null && section == INBOX_PAGE
     var completedRefreshes by remember { mutableIntStateOf(0) }
@@ -179,10 +153,7 @@ internal fun SchoolMessagesScreen(
                     messageId != null -> Note(stringResource(R.string.school_admin_empty))
                     else -> Column(Modifier.fillMaxSize()) {
                         MessageTabs(pager.currentPage) { page ->
-                            if (page != pager.currentPage) {
-                                dismissLinks()
-                                scope.launch { pager.animateScrollToPage(page) }
-                            }
+                            if (page != pager.currentPage) scope.launch { pager.animateScrollToPage(page) }
                         }
                         HorizontalPager(state = pager, modifier = Modifier.weight(1f)) { page ->
                             PullToRefreshBox(
@@ -197,20 +168,8 @@ internal fun SchoolMessagesScreen(
                                 } else {
                                     AdminList(
                                         state.admin, state.adminStatus, state.collegeNotices, noticesList,
-                                        onOpen = { dismissLinks(); onOpenMessage(it.id) }, onOpenDate = onOpenDate,
-                                        onOpenPortal = ::openPortal,
-                                        onLinks = if (state.portalLinksAvailable == false) null else ({
-                                            if (!linksLoading) portalJob = scope.launch {
-                                                linksLoading = true
-                                                try {
-                                                    when (val result = controller.loadPortalLinks()) {
-                                                        is SchoolPortalLinks.Loaded -> if (result.links.isEmpty()) openPortal() else { linkFailed = false; links = result.links }
-                                                        is SchoolPortalLinks.Failed -> linksProblem = result.status
-                                                    }
-                                                } finally { if (isActive) linksLoading = false }
-                                            }
-                                        }),
-                                        linksLoading = linksLoading, busy = state.busy, onRetry = { refreshPage(page) },
+                                        onOpen = { onOpenMessage(it.id) }, onOpenDate = onOpenDate,
+                                        onOpenPortal = ::openPortal, busy = state.busy, onRetry = { refreshPage(page) },
                                     )
                                 }
                             }
@@ -219,47 +178,6 @@ internal fun SchoolMessagesScreen(
                 }
             }
         }
-    }
-    linksProblem?.let { problem ->
-        AlertDialog(onDismissRequest = { linksProblem = null },
-            confirmButton = { TextButton({ linksProblem = null; openPortal() }, enabled = state.portalUrl != null) { Text(stringResource(R.string.school_admin_open_portal)) } },
-            dismissButton = { TextButton({ linksProblem = null }) { Text(stringResource(R.string.school_messages_close)) } },
-            title = { Text(stringResource(R.string.school_admin_portal_links)) },
-            text = {
-                Text(stringResource(when (problem) {
-                    SchoolAdminStatus.SIGN_IN -> R.string.school_admin_portal_links_sign_in
-                    SchoolAdminStatus.UNAVAILABLE -> R.string.school_admin_status_unavailable
-                    SchoolAdminStatus.UNRECOGNIZED -> R.string.school_admin_portal_links_unrecognized
-                    SchoolAdminStatus.NOT_LOADED -> R.string.school_messages_not_connected
-                    else -> R.string.school_admin_portal_links_network
-                }), Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = p.onSurface)
-            })
-    }
-    links?.let { list ->
-        AlertDialog(onDismissRequest = ::dismissLinks,
-            confirmButton = { TextButton(::dismissLinks) { Text(stringResource(R.string.school_messages_close)) } },
-            title = { Text(stringResource(R.string.school_admin_portal_links)) },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState())) {
-                    if (resolvingLink) MessageLoading(R.string.school_mail_opening_link)
-                    if (linkFailed) Text(stringResource(R.string.school_admin_portal_link_failed),
-                        Modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = p.error)
-                    list.forEach { link ->
-                        Text(link.description, Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(enabled = !resolvingLink, role = Role.Button) {
-                            resolvingLink = true
-                            linkFailed = false
-                            portalJob = scope.launch {
-                                try {
-                                    val url = controller.resolvePortalLink(link.code)
-                                    if (url == null) linkFailed = true else { uri.openUri(url); links = null }
-                                } catch (e: CancellationException) { throw e }
-                                catch (_: Exception) { linkFailed = true }
-                                finally { if (isActive) resolvingLink = false }
-                            }
-                        }.padding(vertical = 12.dp), color = p.onSurface, style = MaterialTheme.typography.bodyLarge)
-                    }
-                }
-            })
     }
 }
 
@@ -280,17 +198,12 @@ private fun MessageTabs(selectedPage: Int, onSelect: (Int) -> Unit) {
 private fun AdminList(
     notices: List<SchoolAdminNotice>, status: SchoolAdminStatus, college: List<SchoolCollegeNotice>,
     listState: LazyListState, onOpen: (SchoolAdminNotice) -> Unit, onOpenDate: (LocalDate) -> Unit,
-    onOpenPortal: () -> Unit, onLinks: (() -> Unit)?, linksLoading: Boolean, busy: Boolean, onRetry: () -> Unit,
+    onOpenPortal: () -> Unit, busy: Boolean, onRetry: () -> Unit,
 ) {
     LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 32.dp)) {
         val message = noticeProblem(status, busy)
         if (busy && notices.isEmpty()) item { MessageLoading(R.string.school_messages_refreshing) }
         if (message != null) item { MessageProblem(message, onRetry, onOpenPortal) }
-        if (onLinks != null) item {
-            TextButton(onLinks, Modifier.padding(horizontal = 8.dp), enabled = !linksLoading) {
-                Text(stringResource(if (linksLoading) R.string.school_mail_loading_links else R.string.school_admin_portal_links))
-            }
-        }
         if (college.isNotEmpty()) {
             item { SectionTitle(stringResource(R.string.school_admin_notices)) }
             items(college, key = { it.identity }) { n -> CollegeCard(n, onOpenDate) { notices.firstOrNull { it.id == n.sourceId }?.let(onOpen) } }

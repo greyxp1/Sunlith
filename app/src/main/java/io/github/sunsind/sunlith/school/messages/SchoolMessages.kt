@@ -1,14 +1,6 @@
 package io.github.sunsind.sunlith.school.messages
 
 import io.github.sunsind.sunlith.school.SchoolError
-data class SchoolPortalLink(val code: String, val description: String)
-
-/** The college's own Col.NET links. An empty [Loaded] list means the college publishes none, which is not an error. */
-sealed interface SchoolPortalLinks {
-    data class Loaded(val links: List<SchoolPortalLink>) : SchoolPortalLinks
-    /** [status] says why: SIGN_IN, NETWORK, UNAVAILABLE, UNRECOGNIZED (unexpected answer) or NOT_LOADED (not connected). */
-    data class Failed(val status: SchoolAdminStatus) : SchoolPortalLinks
-}
 
 enum class SchoolAdminStatus { NOT_LOADED, OK, SIGN_IN, UNRECOGNIZED, NETWORK, UNAVAILABLE, STORAGE }
 
@@ -20,8 +12,6 @@ data class SchoolMessagesState(
     val collegeNotices: List<SchoolCollegeNotice> = emptyList(),
     /** Public Col.NET sign-in page; carries no session. */
     val portalUrl: String? = null,
-    /** Null until links were loaded once. False when the college publishes no extra Col.NET links. */
-    val portalLinksAvailable: Boolean? = null,
 )
 
 internal fun SchoolError.adminStatus() = when (this) {

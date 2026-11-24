@@ -77,24 +77,6 @@ internal class SchoolPortalClient(address: String, private val language: String,
         }
         return SchoolFeed(account, term, merged.sortedWith(compareBy<SchoolItem> { it.startMillis }.thenBy { it.id }))
     }
-    suspend fun portalLinks(token: String): List<Pair<String, String>> {
-        val info = request("api/informations", token, false) as JSONObject
-        // A missing or null list means the college publishes no links. Any other non-list value is an unexpected answer.
-        if (!info.has("Liens") || info.isNull("Liens")) return emptyList()
-        val links = info.get("Liens") as? JSONArray ?: throw SchoolFailure(SchoolError.INVALID_DATA)
-        schoolRequire(links.length() <= 200)
-        return (0 until links.length()).mapNotNull { links.optJSONObject(it) }.mapNotNull { j ->
-            val code = j.text("Code"); val description = j.text("Description")
-            if (code.isBlank() || description.isBlank() || code.length > 200) null else code to description.take(200)
-        }.distinctBy { it.first }
-    }
-    /** Returns a one-time portal URL for immediate opening. It is never stored or logged. */
-    suspend fun portalLink(token: String, code: String): String? {
-        schoolRequire(code.isNotBlank() && code.length <= 200)
-        val j = request("api/lienPortail?cleCodeLien=${URLEncoder.encode(code, "UTF-8")}", token, false) as JSONObject
-        val url = j.text("UrlLien").trim()
-        return SchoolHtml.safeLink(url)?.takeIf { it.startsWith("https://", ignoreCase = true) }
-    }
     private suspend fun request(relative: String, token: String?, array: Boolean, form: String? = null): Any {
         coroutineContext.ensureActive()
         val url = base.resolve(relative)

@@ -2,6 +2,7 @@ package io.github.sunsind.sunlith.school.messages
 
 import android.content.Context
 import android.os.SystemClock
+import android.util.Log
 import io.github.sunsind.sunlith.school.SchoolError
 import io.github.sunsind.sunlith.school.portal.HtmlToken
 import io.github.sunsind.sunlith.school.portal.MAIL_IMAGE_EXTENSIONS
@@ -207,17 +208,21 @@ internal class SchoolInbox(private val context: Context, private val record: () 
                 Triple(generation, portal, mail)
             }
             val last = synchronized(lock) { mutableState.value.messages.lastOrNull() }
-            suspend fun fetch(portal: SchoolClassicPortal, mail: SchoolMail) = try {
+            suspend fun fetch(portal: SchoolClassicPortal, mail: SchoolMail, stage: String) = try {
                 portal.get(mail.link).inboxBody(portal, mail)
             } catch (e: SchoolFailure) {
                 if (e.reason != SchoolError.SIGN_IN && e.reason != SchoolError.INVALID_DATA) throw e
+                Log.w(INBOX_LOG, "Read $stage stopped reason=${e.reason}")
                 null
             }
             val result = try {
                 withTimeout(60_000) {
-                    if (portal != null && mail != null) fetch(portal, mail)?.let { return@withTimeout it }
+                    if (portal != null && mail != null) fetch(portal, mail, "session")?.let { return@withTimeout it }
                     val (fresh, page, recovered) = extend(open(current)) { rows -> rows.any { it.id == id } }
-                    val selected = recovered.firstOrNull { it.id == id } ?: return@withTimeout null
+                    val selected = recovered.firstOrNull { it.id == id } ?: run {
+                        Log.w(INBOX_LOG, "Read message not listed rows=${recovered.size} more=${page.next != null}")
+                        return@withTimeout null
+                    }
                     synchronized(lock) {
                         if (stamp != generation) return@withTimeout null
                         if (recovered.covers(last)) {
@@ -227,10 +232,11 @@ internal class SchoolInbox(private val context: Context, private val record: () 
                             session = session?.copy(expired = true)
                         }
                     }
-                    fetch(fresh, selected)
+                    fetch(fresh, selected, "fresh")
                 }
             } catch (e: Exception) {
                 if (e is CancellationException && e !is TimeoutCancellationException) throw e
+                Log.w(INBOX_LOG, "Read stopped type=${e.javaClass.simpleName} reason=${schoolError(e, SchoolError.UNAVAILABLE)}")
                 null
             }
             synchronized(lock) {
@@ -248,6 +254,7 @@ internal class SchoolInbox(private val context: Context, private val record: () 
 internal fun SchoolAdminStatus?.isRetryableInboxFailure() =
     this == SchoolAdminStatus.NETWORK || this == SchoolAdminStatus.UNAVAILABLE
 
+private const val INBOX_LOG = "SunlithInbox"
 private val INBOX_DATE = DateTimeFormatter.ofPattern("uuuu/MM/dd HH:mm", Locale.ROOT)
 
 internal fun SchoolHtmlPage.inboxPage(colnet: URI, earlier: List<SchoolMail> = emptyList()): SchoolInboxPage {
@@ -303,16 +310,27 @@ private fun SchoolHtmlPage.inboxNext(tokens: List<HtmlToken>, colnet: URI, href:
 }
 
 private suspend fun SchoolHtmlPage.inboxBody(portal: SchoolClassicPortal, mail: SchoolMail): SchoolMailRead {
-    schoolRequire(uri.path.equals(portal.colnet.resolve("gestcourr.asp").path, ignoreCase = true))
     val tokens = SchoolHtml.tokens(html, maxChars = null)
-    val body = SchoolHtml.elementContent(tokens, "div", "ckeditor")
-        ?: throw SchoolFailure(SchoolError.INVALID_DATA)
-    val attachments = SchoolHtml.mailAttachments(tokens.take(body.first - 1))
+    val editors = SchoolHtml.elements(tokens, "div") { it["id"] == "ckeditor" }
+    val detail = uri.path.equals(portal.colnet.resolve("gestcourr.asp").path, ignoreCase = true)
+    val editor = editors.singleOrNull()?.takeIf { detail }
+    // Plain and system messages have no CKEditor block and render directly in the message panel.
+    val classic = if (detail && editors.isEmpty()) SchoolHtml.classicMail(tokens) else null
+    val content = editor ?: classic ?: run {
+        Log.w(INBOX_LOG, "Body unrecognized page=${uri.path.substringAfterLast('/')} chars=${html.length} " +
+            "ckeditor=${editors.size} outline=${SchoolHtml.outline(tokens)}")
+        throw SchoolFailure(SchoolError.INVALID_DATA)
+    }
+    val footer = SchoolHtml.mailFooter(tokens, if (editor != null) content.last + 2 else content.first)
+    val (body, header) = if (editor != null) tokens.subList(content.first, content.last + 1) to tokens.take(content.first - 1)
+    else tokens.subList(content.first, footer?.first?.takeIf { it in content } ?: (content.last + 1))
+        .let { SchoolHtml.classicMailBody(it) to it }
+    val attachments = SchoolHtml.mailAttachments(header)
     fun resolve(value: String) = runCatching { uri.resolve(value.trim()).normalize().toString() }.getOrNull()?.let(SchoolHtml::safeLink)
     var imageBudget = 8 * 1024 * 1024
     val images = mutableMapOf<String, String>()
     val imageDeadline = SystemClock.elapsedRealtime() + 8_000
-    val message = SchoolHtml.emailMarkup(tokens.subList(body.first, body.last + 1), ::resolve) { raw ->
+    val message = SchoolHtml.emailMarkup(body, ::resolve) { raw ->
         val dataType = raw.substringAfter("data:", "").substringBefore(";base64,")
         if (dataType in MAIL_IMAGE_TYPES) raw
         else resolve(raw)?.takeIf { it.startsWith("https://", ignoreCase = true) }?.let { url ->
@@ -330,6 +348,6 @@ private suspend fun SchoolHtmlPage.inboxBody(portal: SchoolClassicPortal, mail: 
     }
     return SchoolMailRead(
         mail, message, attachments.map { SchoolHtml.emailMarkup(it, ::resolve) { null } },
-        SchoolHtml.emailMarkup(SchoolHtml.mailFooter(tokens, body.last + 2), ::resolve) { null },
+        SchoolHtml.emailMarkup(footer?.let { tokens.subList(it.first, it.last + 1) }.orEmpty(), ::resolve) { null },
     )
 }

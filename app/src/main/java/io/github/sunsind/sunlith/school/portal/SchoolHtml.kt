@@ -203,27 +203,147 @@ internal object SchoolHtml {
         return matches
     }
 
-    fun elementContent(tokens: List<HtmlToken>, tag: String, id: String): IntRange? {
+    /**
+     * Token ranges inside each outermost [tag] whose attributes [match]. Like browsers, an inner [tag] left unclosed ends
+     * with the enclosing table cell, row or table, or with the page.
+     */
+    fun elements(tokens: List<HtmlToken>, tag: String, match: (Map<String, String>) -> Boolean): List<IntRange> {
+        val found = ArrayList<IntRange>()
         var start = -1
         var depth = 0
-        var content: IntRange? = null
+        val inner = HashMap<String, Int>()
         for ((index, token) in tokens.withIndex()) {
-            if (token !is HtmlTag || token.name != tag) continue
+            if (token !is HtmlTag) continue
             if (depth == 0) {
-                if (!token.closing && token.attributes["id"] == id) {
+                if (token.name == tag && !token.closing && match(token.attributes)) {
                     start = index + 1
                     depth = 1
+                    inner.clear()
                 }
-            } else {
-                depth += if (token.closing) -1 else 1
-                if (depth == 0) {
-                    if (content != null) return null
-                    content = start until index
+                continue
+            }
+            val ended = when (token.name) {
+                tag -> { depth += if (token.closing) -1 else 1; depth == 0 }
+                in TABLE_SCOPE -> (inner.getOrDefault(token.name, 0) + if (token.closing) -1 else 1).also { inner[token.name] = it } < 0
+                else -> false
+            }
+            if (ended) { found += start until index; depth = 0 }
+        }
+        if (depth > 0) found += start until tokens.size
+        return found
+    }
+
+    private val TABLE_SCOPE = setOf("td", "th", "tr", "tbody", "thead", "tfoot", "table")
+
+    /**
+     * Message area of a gestcourr.asp page without CKEditor content: the last div.Panel in div#divPrincipal opened before
+     * the first reply, forward or delete action, ending at the panel or that action. Login and error pages have neither.
+     */
+    fun classicMail(tokens: List<HtmlToken>): IntRange? {
+        val main = elements(tokens, "div") { it["id"] == "divPrincipal" }.singleOrNull() ?: return null
+        val action = main.firstOrNull { (tokens[it] as? HtmlTag)?.attributes?.get("id")?.matches(MAIL_ACTION) == true } ?: return null
+        val panel = elements(tokens, "div") { "Panel" in it["class"].orEmpty().split(WHITESPACE) }
+            .lastOrNull { it.first > main.first && it.first < action } ?: return null
+        return panel.first until minOf(panel.last + 1, action)
+    }
+
+    private val MAIL_ACTION = Regex("btn(?:Repondre|Transferer|Supprimer)\\d*")
+
+    /**
+     * Plain message body from [classicMail] content: skips the "Version imprimable" link, the header table's label rows
+     * ("De", "Date", "Objet", attachments), any "Message" label, and trailing toolbar/table wrapper markup.
+     */
+    fun classicMailBody(tokens: List<HtmlToken>): List<HtmlToken> {
+        var end = tokens.size
+        while (end > 0 && tokens[end - 1].let { it is HtmlTag && it.name != "img" || it is HtmlText && it.text.isBlank() }) end--
+        val content = tokens.subList(0, end)
+        var bodyStart = 0
+        for ((table, token) in content.withIndex()) {
+            if (token !is HtmlTag || token.name != "table" || token.closing) continue
+            var labeled = false
+            var attachments = false
+            var cut = -1
+            for ((start, rowEnd, cells) in rows(content, table)) {
+                val label = cells.firstOrNull()?.let { normalize(text(content.subList(it + 1, cells.getOrElse(1) { rowEnd }))) }
+                    ?.trimEnd(':', ' ').orEmpty()
+                when {
+                    label in MESSAGE_LABELS -> {
+                        cut = if (cells.size >= 2) cells[1] + 1 else rowEnd
+                        labeled = true
+                        break
+                    }
+                    cells.size >= 2 && label in MAIL_LABELS -> {
+                        cut = rowEnd
+                        labeled = true
+                        attachments = label in ATTACHMENT_LABELS
+                    }
+                    labeled && label.isEmpty() && (attachments || text(content.subList(start, rowEnd)).isBlank()) -> cut = rowEnd
+                    else -> break
                 }
             }
+            if (labeled && cut > 0) {
+                bodyStart = cut
+                break
+            }
         }
-        return content.takeIf { depth == 0 }
+        var start = bodyStart
+        while (start < content.size && content[start].let {
+            (it is HtmlText && it.text.isBlank()) ||
+                (it is HtmlTag && (it.name == "br" || it.name in TABLE_SCOPE || it.closing))
+        }) start++
+        // If a standalone "Message" label sits outside the header table, skip it and any breaks after it.
+        val firstText = (start until content.size).firstOrNull { content[it] is HtmlText && (content[it] as HtmlText).text.isNotBlank() }
+        if (firstText != null && normalize((content[firstText] as HtmlText).text).trimEnd(':', ' ') in MESSAGE_LABELS) {
+            start = firstText + 1
+            while (start < content.size && content[start].let {
+                (it is HtmlText && it.text.isBlank()) ||
+                    (it is HtmlTag && (it.name == "br" || it.name in TABLE_SCOPE || it.closing))
+            }) start++
+        }
+        return content.subList(start, content.size)
     }
+
+    /** Direct rows of the table opened at [table], as start, exclusive end and cell start indices. */
+    private fun rows(tokens: List<HtmlToken>, table: Int): List<Triple<Int, Int, List<Int>>> {
+        val rows = ArrayList<Triple<Int, Int, List<Int>>>()
+        var start = -1
+        val cells = ArrayList<Int>()
+        fun close(end: Int) {
+            if (start >= 0) rows += Triple(start, end, cells.toList())
+            start = -1
+            cells.clear()
+        }
+        var depth = 0
+        for (index in table + 1 until tokens.size) {
+            val token = tokens[index] as? HtmlTag ?: continue
+            when {
+                token.name == "table" && !token.closing -> depth++
+                token.name == "table" -> if (depth-- == 0) { close(index); return rows }
+                depth > 0 -> {}
+                token.name == "tr" && token.closing -> close(index + 1)
+                token.name == "tr" -> { close(index); start = index }
+                (token.name == "td" || token.name == "th") && !token.closing -> { if (start < 0) start = index; cells += index }
+            }
+        }
+        close(tokens.size)
+        return rows
+    }
+
+    private val ATTACHMENT_LABELS = setOf("pieces jointes", "piece jointe", "attachments", "attachment")
+    private val MESSAGE_LABELS = setOf("message", "contenu")
+    private val MAIL_LABELS = ATTACHMENT_LABELS + setOf(
+        "de", "a", "cc", "cci", "objet", "sujet", "date", "envoye le", "recu le", "expediteur", "destinataire", "destinataires",
+        "from", "to", "bcc", "subject", "sent", "received",
+    )
+
+    /** Distinct tag#id.class shapes of a page, for diagnostics that must not include text or other attributes. */
+    fun outline(tokens: List<HtmlToken>): String = tokens.asSequence().filterIsInstance<HtmlTag>()
+        .filter { !it.closing && ("id" in it.attributes || "class" in it.attributes) }
+        .map { tag ->
+            tag.name + tag.attributes["id"]?.let { "#" + it.take(40) }.orEmpty() +
+                tag.attributes["class"]?.trim()?.let { "." + it.replace(WHITESPACE, ".").take(60) }.orEmpty()
+        }
+        .distinct().joinToString(" ").take(3000)
 
     fun mailAttachments(tokens: List<HtmlToken>): List<List<HtmlToken>> {
         for (table in tables(tokens)) {
@@ -238,20 +358,19 @@ internal object SchoolHtml {
         return emptyList()
     }
 
-    fun mailFooter(tokens: List<HtmlToken>, after: Int): List<HtmlToken> {
+    fun mailFooter(tokens: List<HtmlToken>, after: Int): IntRange? {
         val start = (after until tokens.size).firstOrNull {
             val token = tokens[it] as? HtmlText ?: return@firstOrNull false
             val text = normalize(token.text)
             text.startsWith("selon la loi canadienne") || text.startsWith("under canadian law")
-        } ?: return emptyList()
+        } ?: return null
         val following = tokens.drop(start).take(80)
         val link = following.indexOfFirst { it is HtmlTag && it.name == "a" && !it.closing }
         val end = if (link >= 0) following.drop(link + 1).indexOfFirst {
             it is HtmlTag && it.name == "a" && it.closing
         } else -1
         val label = if (end >= 0) normalize(text(following.subList(link + 1, link + 1 + end))) else ""
-        return if ("desinscrire" in label || "unsubscribe" in label) following.take(link + end + 2)
-        else following.take(1)
+        return start until start + if ("desinscrire" in label || "unsubscribe" in label) link + end + 2 else 1
     }
 
     suspend fun emailMarkup(

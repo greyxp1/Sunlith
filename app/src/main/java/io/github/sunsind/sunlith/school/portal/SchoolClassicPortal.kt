@@ -1,6 +1,7 @@
 package io.github.sunsind.sunlith.school.portal
 
 import android.content.Context
+import android.util.Log
 import io.github.sunsind.sunlith.school.SchoolError
 import io.github.sunsind.sunlith.school.messages.SchoolAdminDetail
 import io.github.sunsind.sunlith.school.messages.SchoolAdminParser
@@ -27,7 +28,7 @@ internal data class SchoolAdminResult(val outcome: SchoolAdminStatus, val rows: 
 
 /**
  * Classic Col.NET web session (cookie based), used to read administration notices and the inbox.
- * Every URL is checked to stay on the same host under the Col.NET folder. Only transport error types are logged, and the session lives only in memory.
+ * Every URL is checked to stay on the same host under the Col.NET folder. Only error types, statuses and page names are logged, and the session lives only in memory.
  */
 internal class SchoolClassicPortal(mobileBase: URI, context: Context) {
     val colnet: URI = mobileBase.resolve("../").normalize()
@@ -140,11 +141,13 @@ internal class SchoolClassicPortal(mobileBase: URI, context: Context) {
         }) { connection, status ->
             connection.headerFields?.entries?.filter { it.key.equals("Set-Cookie", true) }?.flatMap { it.value.orEmpty() }?.forEach(::remember)
             if (status in 300..399) return@exchange null to (connection.getHeaderField("Location") ?: throw SchoolFailure(SchoolError.INVALID_DATA))
+            val type = connection.contentType.orEmpty()
+            val html = type.substringBefore(';').trim().equals("text/html", true)
+            if (status !in 200..299 || !html) Log.w("SunlithSchool", "Classic page=${uri.path.substringAfterLast('/')} status=$status type=${type.substringBefore(';').trim().take(60)}")
             if (status == 401 || status == 403) throw SchoolFailure(SchoolError.SIGN_IN)
             if (status == 503) throw SchoolFailure(SchoolError.UNAVAILABLE)
             if (status !in 200..299) throw SchoolFailure(SchoolError.NETWORK)
-            val type = connection.contentType.orEmpty()
-            if (!type.substringBefore(';').trim().equals("text/html", true)) throw SchoolFailure(SchoolError.INVALID_DATA)
+            if (!html) throw SchoolFailure(SchoolError.INVALID_DATA)
             val maxBytes = MAX_BYTES.takeUnless { uri.path.equals(colnet.resolve("gestcourr.asp").path, true) }
             decode(SchoolHttps.body(connection, maxBytes), type) to null
         }
