@@ -71,19 +71,17 @@ internal fun EventChooser(
     events: List<CalendarEvent>, f: Formats, onOpen: (CalendarEvent) -> Unit, onClose: () -> Unit,
     date: LocalDate? = null, emptyLabel: String? = null, onAdd: (() -> Unit)? = null,
 ) {
-    val context = LocalContext.current
     val p = MaterialTheme.colorScheme
-    val titleText = date?.let(f::dayLong) ?: context.resources.getQuantityString(R.plurals.event_count, events.size, events.size)
     val openLabel = stringResource(R.string.timeline_event_open)
-    ModalBottomSheet(onDismissRequest = onClose) {
-        Text(titleText, Modifier.padding(horizontal = 24.dp).semantics { heading() }, color = p.onSurface,
-            style = MaterialTheme.typography.titleLargeEmphasized)
-        Spacer(Modifier.height(12.dp))
+    ModalBottomSheet(onDismissRequest = onClose, dragHandle = null) {
         if (date != null) {
+            Text(f.dayLong(date), Modifier.padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 12.dp).semantics { heading() }, color = p.onSurface,
+                style = MaterialTheme.typography.titleLargeEmphasized)
             val ordered = remember(events) { agendaOrder(events) }
             AgendaEventList(ordered, date, f, { event -> onOpen(event); onClose() },
                 Modifier.weight(1f, fill = false), emptyLabel = emptyLabel)
         } else {
+            Spacer(Modifier.height(16.dp))
             Column(
                 Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
