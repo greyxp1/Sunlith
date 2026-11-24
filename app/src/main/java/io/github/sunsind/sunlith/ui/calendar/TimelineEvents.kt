@@ -88,9 +88,6 @@ import kotlinx.coroutines.flow.first
 private const val DAY_MINUTES = 24 * 60
 internal val TIMELINE_LABEL_PADDING = 3.dp
 
-/** The folded corner of an exam, larger than the card corner so it still reads after the card clips it. */
-private val EXAM_FLAG = 12.dp
-
 internal fun CalendarEvent.isTimelineBanner(): Boolean = allDay || endMillis - startMillis >= 86_400_000L
 
 /**
@@ -231,9 +228,10 @@ internal fun AllDayChip(
     val endpoint = morph?.endpoint(event, day, inList = false, EVENT_CORNER)
     val bounds = Modifier.fillMaxWidth().heightIn(min = 48.dp)
     val card = if (endpoint == null) bounds else morph.card(bounds, endpoint, day)
+    val error = MaterialTheme.colorScheme.error
     Box(
         card.clip(shape).background(colors.container)
-            .then(if (event.exam() == null) Modifier else Modifier.drawBehind { drawExamFlag(colors.content, EXAM_FLAG.toPx()) })
+            .then(if (event.exam() == null) Modifier else Modifier.drawBehind { drawExamRing(error, colors.content, EVENT_CORNER.toPx()) })
             .focusRing(highlight, colors.content, shape, motion)
             .calendarTap(colors.content, onClick = onClick)
             .clearAndSetSemantics { contentDescription = description; role = Role.Button; onClick { onClick(); true } }
@@ -355,11 +353,11 @@ private fun EventBlock(
     val context = LocalContext.current
     val typography = MaterialTheme.typography
     val title = event.withTodoMark(event.displayTitle().ifBlank { stringResource(R.string.untitled) })
-    val ownExam = event.exam() != null
-    // A stack is flagged when any of its events is an exam. Only its first event names it, since that is the one it shows.
-    val exam = ownExam || more.any { it.exam() != null }
-    val status = listOfNotNull(stringResource(R.string.exam_tag).takeIf { ownExam }, absenceStatus(event, f, compact))
-        .takeIf { it.isNotEmpty() }?.joinToString("\n")
+    // A stack is framed and labeled when any of its events is an exam, so an exam never hides behind another class.
+    val exam = event.exam() != null || more.any { it.exam() != null }
+    val examText = stringResource(R.string.exam_tag)
+    val error = MaterialTheme.colorScheme.error
+    val status = absenceStatus(event, f, compact)
     val ownDescription = event.spokenDescription(f, context.timeLabel(event, day, zone, f))
     val description = if (more.isEmpty()) ownDescription else {
         val count = more.size + 1
@@ -415,8 +413,6 @@ private fun EventBlock(
                     else missed.forEach { (from, to) ->
                         drawCanceledBars(colors.content, Offset(0f, from * size.height), Size(size.width, (to - from) * size.height))
                     }
-                    if (exam) drawExamFlag(colors.content, EXAM_FLAG.toPx(),
-                        end = size.width - if (marks.isEmpty()) 0f else rail.toPx() + 1.dp.toPx())
                     if (marks.isNotEmpty()) {
                         val railWidth = rail.toPx()
                         val gap = 1.dp.toPx()
@@ -427,6 +423,12 @@ private fun EventBlock(
                             drawRect(markColors[i], Offset(if (rtl) 0f else size.width - railWidth, top),
                                 Size(railWidth, maxOf(minHeight, (to - from) * size.height)))
                         }
+                    }
+                    // A stack's frame stops at its rail, so the rail keeps showing every event's time.
+                    if (exam) {
+                        val railSpace = if (marks.isEmpty()) 0f else rail.toPx() + 1.dp.toPx()
+                        drawExamRing(error, colors.content, EVENT_CORNER.toPx(), topLeft = Offset(if (rtl) railSpace else 0f, 0f),
+                            size = Size(size.width - railSpace, size.height))
                     }
                 })
                 .focusRing(highlight, colors.content, shape, motion)
@@ -489,6 +491,12 @@ private fun EventBlock(
             val badgePad = with(density) { 5.dp.roundToPx() }
             val countBadge = moreLayout != null && moreLayout.size.width + badgePad * 2 <= innerWidth
             val statusLayout = remember(status, statusStyle, innerWidth) { status?.let { wholeField(it, statusStyle) } }
+            // The exam pill shows only whole, on cards wide enough for it. The frame marks the smaller ones.
+            val examPad = with(density) { 6.dp.roundToPx() }
+            val examLayout = remember(exam, examText, statusStyle, innerWidth) {
+                if (!exam) null else measurer.measure(examText, statusStyle, maxLines = 1, softWrap = false)
+                    .takeIf { it.size.width + examPad * 2 <= innerWidth }
+            }
             var left = innerHeight.coerceAtLeast(0f)
             fun take(lines: Int, height: Float): Int {
                 val line = height / lines.coerceAtLeast(1)
@@ -504,6 +512,7 @@ private fun EventBlock(
             val titleLine = titleLayout.size.height.toFloat() / titleLayout.lineCount.coerceAtLeast(1)
             val firstTitle = take(1, titleLine)
             val showMore = firstTitle > 0 && moreLayout?.let { takeWhole(it.size.height) } == true
+            val showExam = firstTitle > 0 && examLayout?.let { takeWhole(it.size.height) } == true
             val showStatus = firstTitle > 0 && statusLayout?.let { takeWhole(it.size.height) } == true
             val priorityTitle = if (wide) 0 else minOf(2, titleLayout.lineCount - firstTitle)
             var titleLines = firstTitle + take(priorityTitle, titleLine * priorityTitle)
@@ -522,6 +531,9 @@ private fun EventBlock(
                     }
                 } else if (titleLines > 0) AgendaCardText(title, colors.content, titleStyle, endpoint, "title", Modifier.fillMaxWidth(),
                     textAlign = align, maxLines = titleLines)
+                if (showExam) Box(Modifier.fillMaxWidth(), contentAlignment = if (centered) Alignment.Center else Alignment.CenterStart) {
+                    ExamPill(colors.content, statusStyle)
+                }
                 if (showMore) Box(Modifier.fillMaxWidth(), contentAlignment = if (centered) Alignment.Center else Alignment.CenterStart) {
                     Text(moreText, if (!countBadge) Modifier else Modifier
                         .background(colors.content.copy(alpha = 0.16f), CircleShape).padding(horizontal = 5.dp),
@@ -529,7 +541,6 @@ private fun EventBlock(
                 }
                 if (showStatus && status != null) AgendaCardText(status, colors.content, statusStyle, endpoint, "status", Modifier.fillMaxWidth(),
                     textAlign = align, maxLines = statusLayout!!.lineCount)
-
             }
         }
     }

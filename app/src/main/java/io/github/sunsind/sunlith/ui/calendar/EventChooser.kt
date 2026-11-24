@@ -1,6 +1,7 @@
 package io.github.sunsind.sunlith.ui.calendar
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -116,9 +117,11 @@ private fun TimelineEventChoice(event: CalendarEvent, f: Formats, openLabel: Str
     }
     val status = absenceStatus(event, f)
     val description = event.spokenDescription(f, time)
+    val exam = event.exam()
     Row(
         Modifier.fillMaxWidth().heightIn(min = 56.dp).height(IntrinsicSize.Min).clip(shape)
             .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            .then(if (exam == null) Modifier else Modifier.border(EXAM_RING, p.error, shape))
             .clickable(role = Role.Button, onClickLabel = openLabel, onClick = onClick)
             .clearAndSetSemantics {
                 contentDescription = description
@@ -136,11 +139,8 @@ private fun TimelineEventChoice(event: CalendarEvent, f: Formats, openLabel: Str
             if (!event.allDay) Text(time, color = p.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
             event.classroom()?.let { Text(it, color = p.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
             if (status != null) Text(status, color = p.onSurface, style = MaterialTheme.typography.bodySmallEmphasized)
-            event.exam()?.let { note ->
-                val colors = eventColors(event)
-                ExamBadge(note, colors.container, colors.content, p.onSurfaceVariant, MaterialTheme.typography.labelMedium,
-                    Modifier.padding(top = 4.dp))
-            }
+            if (exam != null) ExamBadge(exam, p.onSurface, p.onSurfaceVariant, MaterialTheme.typography.labelMedium,
+                Modifier.padding(top = 4.dp))
         }
         Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, Modifier.padding(start = 4.dp).size(20.dp), tint = p.onSurfaceVariant)
     }

@@ -106,13 +106,20 @@ class CalendarRepository(context: Context) {
         return readStored(id)?.draft
     }
 
-    /** Tags only the description; timing, recurrence, attendees and reminders are never rewritten. */
-    fun setTodo(id: Long, enabled: Boolean) {
+    fun setTodo(id: Long, enabled: Boolean) = updateDescription(id) { TodoMarker.set(it, enabled) }
+
+    /** Replaces the notes and keeps the To-do tag. An event deleted meanwhile has nothing left to save. */
+    fun setNotes(id: Long, notes: String) {
+        if (revision(id) != null) updateDescription(id) { TodoMarker.set(notes, TodoMarker.has(it)) }
+    }
+
+    /** Rewrites only the description; timing, recurrence, attendees and reminders are never touched. */
+    private fun updateDescription(id: Long, change: (String) -> String) {
         checkWrite()
         val expected = revision(id) ?: error("This event no longer exists.")
         require(editBlockReason(id) == null) { "This event cannot be edited here. Open it in your existing calendar app." }
         val description = expected[Events.DESCRIPTION].orEmpty()
-        val updated = TodoMarker.set(description, enabled)
+        val updated = change(description)
         if (description == updated) return
         require(updated.length <= 100_000) { "The event details are too long." }
         resolver.applyBatch(CalendarContract.AUTHORITY, arrayListOf(

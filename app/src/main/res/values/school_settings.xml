@@ -74,7 +74,6 @@
     <string name="school_disconnect_remove">Remove imported school events</string>
     <string name="school_disconnect_remove_note">Your own events and school events edited in another app stay.</string>
     <string name="school_disconnect_remove_confirm">Disconnect and remove</string>
-    <string name="school_settings_managed_event">Updated by your school portal.</string>
     <string name="school_link_managed">Sync will update these events in place. Disconnect to edit them yourself.</string>
     <string name="school_not_now">Not now</string>
 </resources>

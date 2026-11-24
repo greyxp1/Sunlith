@@ -47,6 +47,13 @@ val CalendarEvent.examKey: String? get() = school?.takeIf { it.kind == "01" && i
     listOf(info.course, info.group, info.classKey, info.classKind, day).joinToString("|")
 }
 
+/**
+ * Where Sunlith keeps its own note for the event: a class by [examKey], so a sync that replaces its rows keeps the
+ * note, and anything else by its row and occurrence, since a series shares one description.
+ */
+val CalendarEvent.noteKey: String get() =
+    examKey ?: "$calendarId:$id:" + if (allDay) CalendarDates.allDayDate(startMillis).toString() else startMillis.toString()
+
 enum class SchoolAbsenceCoverage { NONE, PARTIAL, FULL }
 
 data class SchoolEventPeriod(

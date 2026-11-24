@@ -27,12 +27,13 @@ import io.github.sunsind.sunlith.data.EditBlockReason
 import io.github.sunsind.sunlith.data.EventDraft
 import io.github.sunsind.sunlith.data.TodoItem
 import io.github.sunsind.sunlith.data.examKey
+import io.github.sunsind.sunlith.data.noteKey
 import io.github.sunsind.sunlith.data.indexByDay
 import io.github.sunsind.sunlith.data.key
 import io.github.sunsind.sunlith.data.projectSchoolEvents
 import io.github.sunsind.sunlith.data.span
 import io.github.sunsind.sunlith.system.AppRefresh
-import io.github.sunsind.sunlith.system.ExamStore
+import io.github.sunsind.sunlith.system.LocalEventStore
 import io.github.sunsind.sunlith.system.LauncherIcons
 import io.github.sunsind.sunlith.system.SettingsStore
 import io.github.sunsind.sunlith.system.TodoStore
@@ -188,15 +189,34 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
         todoCompleted = if (completed) todoCompleted + item.key else todoCompleted - item.key
     }
 
-    private val examStore = ExamStore(app)
-    /** Exam notes by [examKey]. A marked class without a note maps to an empty note. */
-    var exams by mutableStateOf(examStore.all()); private set
+    private val localEvents = LocalEventStore(app)
+    /** Classes marked as exams, by [examKey]. */
+    var exams by mutableStateOf(localEvents.exams()); private set
+    /** Notes kept on this device by [noteKey], for events whose description Sunlith does not write. */
+    var localNotes by mutableStateOf(localEvents.notes()); private set
 
-    /** Marks the class as an exam with [note], or clears the mark when [note] is null. */
-    fun setExam(event: CalendarEvent, note: String?) {
+    fun setExam(event: CalendarEvent, marked: Boolean) {
         val key = event.examKey ?: return
-        examStore.set(key, note)
-        exams = if (note == null) exams - key else exams + (key to note)
+        localEvents.setExam(key, marked)
+        exams = if (marked) exams + key else exams - key
+    }
+
+    fun setLocalNote(event: CalendarEvent, note: String) {
+        val key = event.noteKey
+        localEvents.setNote(key, note)
+        localNotes = if (note.isBlank()) localNotes - key else localNotes + (key to note)
+    }
+
+    private var notesJob: Job? = null
+
+    /** Saves [notes] as the event's description after any earlier save, so the editor and To-do read the latest. */
+    fun saveEventNotes(id: Long, notes: String, onSaved: () -> Unit = {}) {
+        val previous = notesJob
+        notesJob = launchAction {
+            previous?.join()
+            withContext(Dispatchers.IO) { repo.setNotes(id, notes) }
+            onSaved()
+        }
     }
 
     /** A new to-do starting now, so it is pending as soon as it is saved. */
@@ -211,7 +231,9 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
     fun setEventTodo(event: CalendarEvent, enabled: Boolean) {
         if (event.id in todoSavingIds) return
         todoSavingIds = todoSavingIds + event.id
-        launchAction({ todoSavingIds = todoSavingIds - event.id }) {
+        val previous = notesJob
+        notesJob = launchAction({ todoSavingIds = todoSavingIds - event.id }) {
+            previous?.join()
             withContext(Dispatchers.IO) { repo.setTodo(event.id, enabled) }
             todoRevision++
             reload()
@@ -861,6 +883,7 @@ class SunlithViewModel(app: Application, private val savedState: SavedStateHandl
 
     fun editEvent(id: Long) {
         launchAction {
+            notesJob?.join()
             val draft = withContext(Dispatchers.IO) { repo.getEvent(id) }
             if (draft == null) { message(context.getString(R.string.msg_event_missing)); return@launchAction }
             val state = EditorState.from(draft, ZoneId.systemDefault())

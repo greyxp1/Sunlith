@@ -37,12 +37,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -59,13 +60,13 @@ import androidx.compose.ui.text.style.Hyphens
 import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.data.CalendarEvent
 import io.github.sunsind.sunlith.data.SchoolAbsenceCoverage
 import io.github.sunsind.sunlith.data.examKey
+import io.github.sunsind.sunlith.data.noteKey
 import io.github.sunsind.sunlith.ui.Formats
 import io.github.sunsind.sunlith.ui.LocalDarkTheme
 import io.github.sunsind.sunlith.ui.timeLabel
@@ -147,41 +148,59 @@ internal fun eventColors(event: CalendarEvent, colors: ColorScheme, dark: Boolea
 
 internal fun CalendarEvent.withTodoMark(title: String) = if (todo) "☐ $title" else title
 
-/** Exam notes by [examKey]. Only the cards that read it recompose when a mark or note changes. */
-internal val LocalExams = compositionLocalOf { emptyMap<String, String>() }
+/** Classes marked as exams, by [examKey]. Only the cards that read it recompose when a mark changes. */
+internal val LocalExams = compositionLocalOf { emptySet<String>() }
+
+/** Notes kept on this device, by [noteKey]. */
+internal val LocalNotes = compositionLocalOf { emptyMap<String, String>() }
 
 /** The note of a class marked as an exam, empty without one, or null when it is not marked. */
 @Composable
 @ReadOnlyComposable
-internal fun CalendarEvent.exam(): String? = examKey?.let { LocalExams.current[it] }
+internal fun CalendarEvent.exam(): String? =
+    examKey?.takeIf { it in LocalExams.current }?.let { LocalNotes.current[noteKey].orEmpty() }
 
-/** The exam label with its note, as read aloud and shown where a card has room. */
+/** The exam label with its note, as read aloud. */
 @Composable
 @ReadOnlyComposable
 internal fun examLabel(note: String): String =
     listOf(stringResource(R.string.exam_tag), note.trim()).filter { it.isNotEmpty() }.joinToString(", ")
 
 /**
- * A folded top end corner in the card's [content] color, the exam mark that still shows on the smallest Week and
- * Month cards. [end] is where the corner sits, leaving room for a stack's rail.
+ * The exam frame: a [ring] wide band in the theme's error color along the card's edge, then a line of the card's
+ * [content] color that parts it from the fill, so it stands out on every course color and on the background.
  */
-internal fun DrawScope.drawExamFlag(content: Color, flag: Float, top: Float = 0f, end: Float = size.width) {
-    val rtl = layoutDirection == LayoutDirection.Rtl
-    val corner = if (rtl) size.width - end else end
-    val inward = if (rtl) flag else -flag
-    drawPath(Path().apply {
-        moveTo(corner, top); lineTo(corner + inward, top); lineTo(corner, top + flag); close()
-    }, content)
+internal fun DrawScope.drawExamRing(
+    error: Color, content: Color, corner: Float, ring: Float = EXAM_RING.toPx(),
+    topLeft: Offset = Offset.Zero, size: Size = this.size,
+) {
+    fun band(inset: Float, width: Float, color: Color) {
+        val edge = inset + width / 2
+        if (size.width <= edge * 2 || size.height <= edge * 2) return
+        drawRoundRect(color, topLeft + Offset(edge, edge), Size(size.width - edge * 2, size.height - edge * 2),
+            CornerRadius((corner - edge).coerceAtLeast(0f)), style = Stroke(width))
+    }
+    band(0f, ring, error)
+    band(ring, ring / 2, content)
 }
 
-/** A filled exam pill in [pill] with its note beside it, for cards with room to name the exam. */
+internal val EXAM_RING = 2.dp
+
+/** The solid exam pill, outlined in the card's [content] color so it stays crisp on a red course color. */
 @Composable
-internal fun ExamBadge(note: String, pill: Color, onPill: Color, noteColor: Color, style: TextStyle, modifier: Modifier = Modifier) {
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(stringResource(R.string.exam_tag), Modifier.background(pill, CircleShape).padding(horizontal = 6.dp),
-            color = onPill, style = style, fontWeight = FontWeight.Bold, maxLines = 1)
-        if (note.isNotBlank()) Text(note.trim(), Modifier.weight(1f, fill = false), color = noteColor, style = style,
-            maxLines = 2, overflow = TextOverflow.Ellipsis)
+internal fun ExamPill(content: Color, style: TextStyle, modifier: Modifier = Modifier) {
+    val p = MaterialTheme.colorScheme
+    Text(stringResource(R.string.exam_tag),
+        modifier.background(p.error, CircleShape).border(1.dp, content, CircleShape).padding(horizontal = 6.dp),
+        color = p.onError, style = style, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+}
+
+/** The exam pill with its note under it, for cards with room to say what the exam covers. */
+@Composable
+internal fun ExamBadge(note: String, content: Color, noteColor: Color, style: TextStyle, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        ExamPill(content, style)
+        if (note.isNotBlank()) Text(note.trim(), color = noteColor, style = style, maxLines = 3, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -424,9 +443,12 @@ internal fun CalendarEventCard(
     val endpoint = morph?.endpoint(event, day, inList = true, radius)
     val card = if (endpoint == null) modifier else morph.card(modifier, endpoint, day)
     val typography = MaterialTheme.typography
+    val exam = event.exam()
+    val error = MaterialTheme.colorScheme.error
     Row(
         card.fillMaxWidth().height(IntrinsicSize.Min).heightIn(min = 52.dp).clip(shape).background(colors.container)
             .then(if (event.canceled) Modifier.drawBehind { drawCanceledBars(colors.content) } else Modifier)
+            .then(if (exam == null) Modifier else Modifier.drawBehind { drawExamRing(error, colors.content, radius.toPx()) })
             .calendarTap(colors.content, onClick = onClick)
             .semantics { contentDescription = listOf(time, event.location).filter { it.isNotBlank() }.joinToString(", ") }
             .padding(vertical = 10.dp),
@@ -445,9 +467,7 @@ internal fun CalendarEventCard(
                     modifier = Modifier.clearAndSetSemantics { })
             }
             if (status != null) AgendaCardText(status, colors.content, typography.bodyMedium, endpoint, "status")
-            event.exam()?.let { note ->
-                ExamBadge(note, colors.content, colors.container, colors.content, typography.labelMedium, Modifier.padding(top = 2.dp))
-            }
+            if (exam != null) ExamBadge(exam, colors.content, colors.content, typography.labelMedium, Modifier.padding(top = 2.dp))
         }
         if (event.todo) {
             Icon(Icons.Outlined.CheckBoxOutlineBlank, stringResource(R.string.todo_tag), tint = colors.content,

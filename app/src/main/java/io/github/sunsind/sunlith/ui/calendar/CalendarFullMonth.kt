@@ -29,11 +29,8 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -148,8 +145,10 @@ private fun FullMonthCell(
     val courses = LocalCourseColors.current
     val untitled = stringResource(R.string.untitled)
     val exams = LocalExams.current
-    val description = remember(day, isToday, events.size, f) {
-        dayDescription(context, f, day, isToday, events.size)
+    val examTag = stringResource(R.string.exam_tag)
+    val hasExam = events.any { it.examKey in exams }
+    val description = remember(day, isToday, events.size, f, hasExam) {
+        dayDescription(context, f, day, isToday, events.size) + if (hasExam) ", $examTag" else ""
     }
     val selectLabel = stringResource(R.string.calendar_open_day_events)
     val grid = rememberTimelineGridColors()
@@ -178,13 +177,14 @@ private fun FullMonthCell(
                 val chipTop = top + numberSize + 2.dp.toPx()
                 val padding = 3.dp.toPx()
                 val rtl = layoutDirection == LayoutDirection.Rtl
-                val flag = 7.dp.toPx()
+                // Month chips are short, so the exam frame is thinner there than on the timeline.
+                val ring = 1.5.dp.toPx()
                 val labels = events.take(slots).map { event ->
                     val colors = eventColors(event, p, dark, courses, dimmed = !inMonth)
                     val title = event.displayTitle().ifBlank { untitled }
                     val exam = event.examKey in exams
                     val markerWidth = if (event.todo) 10.dp.toPx() else 0f
-                    val width = (available - 2 * padding - markerWidth - if (exam) flag / 2 else 0f).toInt().coerceAtLeast(0)
+                    val width = (available - 2 * padding - markerWidth - if (exam) ring * 1.5f else 0f).toInt().coerceAtLeast(0)
                     val text = measurer.measure(title, chipStyle, maxLines = 1, softWrap = false,
                         overflow = TextOverflow.Visible, constraints = Constraints(maxWidth = width))
                     ChipLabel(event, colors, text, exam)
@@ -216,9 +216,7 @@ private fun FullMonthCell(
                         val bounds = Rect(Offset(inset, y), Size(available, chipHeight))
                         drawRoundRect(colors.container, bounds.topLeft, bounds.size, CornerRadius(4.dp.toPx()))
                         if (event.canceled) drawCanceledBars(colors.content, bounds.topLeft, bounds.size)
-                        if (exam) clipPath(Path().apply { addRoundRect(RoundRect(bounds, CornerRadius(4.dp.toPx()))) }) {
-                            drawExamFlag(colors.content, flag, y, bounds.right)
-                        }
+                        if (exam) drawExamRing(p.error, colors.content, 4.dp.toPx(), ring, bounds.topLeft, bounds.size)
                         val markerWidth = if (event.todo) 10.dp.toPx() else 0f
                         if (event.todo) {
                             val iconSize = minOf(7.dp.toPx(), chipHeight - 4.dp.toPx()).coerceAtLeast(1f)
@@ -226,9 +224,9 @@ private fun FullMonthCell(
                             drawRoundRect(colors.content, Offset(iconX, y + (chipHeight - iconSize) / 2), Size(iconSize, iconSize),
                                 CornerRadius(1.dp.toPx()), style = Stroke(1.dp.toPx()))
                         }
-                        val flagWidth = if (exam) flag / 2 else 0f
-                        val left = bounds.left + padding + if (rtl) flagWidth else markerWidth
-                        val right = bounds.right - padding - if (rtl) markerWidth else flagWidth
+                        val frame = if (exam) ring * 1.5f else 0f
+                        val left = bounds.left + padding + frame / 2 + if (rtl) 0f else markerWidth
+                        val right = bounds.right - padding - frame / 2 - if (rtl) markerWidth else 0f
                         if (right > left) {
                             val x = if (rtl && !text.didOverflowWidth) right - text.size.width else left
                             clipRect(left, y, right, bounds.bottom) {

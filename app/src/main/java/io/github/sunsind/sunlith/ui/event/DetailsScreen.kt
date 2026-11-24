@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -43,11 +42,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -63,7 +62,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import io.github.sunsind.sunlith.R
 import io.github.sunsind.sunlith.data.CalendarEvent
@@ -72,6 +70,7 @@ import io.github.sunsind.sunlith.data.EventDraft
 import io.github.sunsind.sunlith.data.TodoMarker
 import io.github.sunsind.sunlith.data.examKey
 import io.github.sunsind.sunlith.data.key
+import io.github.sunsind.sunlith.data.noteKey
 import io.github.sunsind.sunlith.data.span
 import io.github.sunsind.sunlith.ui.FieldGroup
 import io.github.sunsind.sunlith.ui.Screen
@@ -84,6 +83,7 @@ import io.github.sunsind.sunlith.ui.canvas
 import io.github.sunsind.sunlith.ui.rememberFormats
 import java.time.Instant
 import java.time.ZoneId
+import kotlinx.coroutines.delay
 
 /** Provider facts that need a query: the stored draft and why editing is blocked. Loaded together, replaced only when ready. */
 private class DetailsMeta(val draft: EventDraft?, val blockReason: EditBlockReason?)
@@ -138,6 +138,29 @@ fun DetailsScreen(vm: SunlithViewModel, opened: CalendarEvent) {
     // A combined class spans several provider rows; the draft only describes the first one.
     val periods = school?.periods.orEmpty().sortedBy { it.startMillis }.takeIf { it.size > 1 }.orEmpty()
     val absences = school?.absences.orEmpty().sortedBy { it.startMillis }
+    val notes = TodoMarker.strip(if (periods.isNotEmpty()) event.description else detailsDescription(event, live, draft?.description))
+    val schoolNotes = schoolNotes(event, notes)
+    // Sunlith writes the notes of a single event it may edit into its description, where the editor and other
+    // calendar apps show them. Anything else keeps its note on this device: the school sync owns its classes, and a
+    // series shares one description.
+    val descriptionNotes = school == null && writable && !series && blockReason == null
+    var noteText by rememberSaveable(event.id) { mutableStateOf(notes) }
+    var savedNote by rememberSaveable(event.id) { mutableStateOf(notes) }
+    fun flushNotes() {
+        val text = noteText
+        if (text == savedNote) return
+        vm.saveEventNotes(event.id, text) { savedNote = text }
+    }
+    // A change from elsewhere replaces the field unless it holds an edit that is not saved yet.
+    LaunchedEffect(notes) {
+        if (noteText == savedNote) noteText = notes
+        savedNote = notes
+    }
+    LaunchedEffect(noteText) {
+        delay(800)
+        flushNotes()
+    }
+    DisposableEffect(event.id) { onDispose { flushNotes() } }
 
     Scaffold(containerColor = p.canvas) { pad ->
         Column(Modifier.fillMaxSize().padding(pad).verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 32.dp)) {
@@ -154,7 +177,7 @@ fun DetailsScreen(vm: SunlithViewModel, opened: CalendarEvent) {
                     )
                 }
                 if (writable && permissionsLoaded && blockReason == null) {
-                    IconButton(onClick = { if (series) confirmSeriesEdit = true else vm.editEvent(event.id) }) {
+                    IconButton(onClick = { if (series) confirmSeriesEdit = true else { flushNotes(); vm.editEvent(event.id) } }) {
                         Icon(Icons.Outlined.Edit, stringResource(R.string.action_edit), tint = p.onSurface)
                     }
                     IconButton(onClick = { confirmDelete = true }) {
@@ -202,13 +225,13 @@ fun DetailsScreen(vm: SunlithViewModel, opened: CalendarEvent) {
                     calendar?.account?.takeIf { it.isNotBlank() && !calendar.name.startsWith(it) }?.let { SecondaryText(it) }
                 }
                 if (calendar != null && !calendar.writable) DetailRow(Icons.Outlined.Lock) { SecondaryText(stringResource(R.string.details_read_only)) }
-                if ((writable || !permissionsLoaded) && blockReason != null) DetailRow(Icons.Outlined.Lock) {
+                // A school class says nothing here, since its title and class row already show where it comes from.
+                if ((writable || !permissionsLoaded) && blockReason != null && blockReason != EditBlockReason.SCHOOL_MANAGED) DetailRow(Icons.Outlined.Lock) {
                     SecondaryText(stringResource(when (blockReason) {
                         EditBlockReason.GUESTS -> R.string.details_guests
                         EditBlockReason.RECURRENCE_EXCEPTION -> R.string.details_exceptions
                         EditBlockReason.MISSING -> R.string.msg_event_missing
                         EditBlockReason.READ_ONLY -> R.string.details_read_only
-                        EditBlockReason.SCHOOL_MANAGED -> R.string.school_settings_managed_event
                         else -> R.string.details_unsupported
                     }))
                 }
@@ -232,23 +255,15 @@ fun DetailsScreen(vm: SunlithViewModel, opened: CalendarEvent) {
                     }
                 }
                 // A canceled class only offers to clear a mark it already has.
-                val examNote = event.examKey?.let { vm.exams[it] }
-                if (event.examKey != null && (examNote != null || !event.canceled)) DetailRow(Icons.Outlined.Quiz) {
+                val exam = event.examKey?.let { it in vm.exams }
+                if (exam != null && (exam || !event.canceled)) DetailRow(Icons.Outlined.Quiz, centered = true) {
                     Row(
-                        Modifier.fillMaxWidth().toggleable(examNote != null, role = Role.Switch) { vm.setExam(event, if (it) "" else null) },
+                        Modifier.fillMaxWidth().toggleable(exam, role = Role.Switch) { vm.setExam(event, it) },
                         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Column(Modifier.weight(1f)) {
-                            PrimaryText(stringResource(R.string.exam_tag))
-                            SecondaryText(stringResource(R.string.exam_hint))
-                        }
-                        Switch(checked = examNote != null, onCheckedChange = null)
+                        Box(Modifier.weight(1f)) { PrimaryText(stringResource(R.string.exam_tag)) }
+                        Switch(checked = exam, onCheckedChange = null)
                     }
-                    if (examNote != null) OutlinedTextField(
-                        examNote, { vm.setExam(event, it.take(200)) }, Modifier.fillMaxWidth().padding(top = 8.dp),
-                        label = { Text(stringResource(R.string.exam_note)) }, singleLine = true,
-                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-                    )
                 }
                 if (periods.isNotEmpty()) {
                     DetailRow(Icons.Outlined.LocationOn) {
@@ -275,11 +290,10 @@ fun DetailsScreen(vm: SunlithViewModel, opened: CalendarEvent) {
                     DetailRow(Icons.Outlined.Notifications) { reminders.sorted().forEach { PrimaryText(f.reminder(it)) } }
                 }
             }
-            val notes = TodoMarker.strip(if (periods.isNotEmpty()) event.description else detailsDescription(event, live, draft?.description))
-            val schoolNotes = schoolNotes(event, notes)
-            val shownNotes = schoolNotes?.notes ?: notes
+            // The description field already shows a writable event's notes.
+            val shownNotes = if (descriptionNotes) "" else schoolNotes?.notes ?: notes
             val schoolRow = schoolNotes != null && (schoolNotes.teachers != null || schoolNotes.summary != null)
-            if (schoolRow || absences.isNotEmpty() || shownNotes.isNotBlank()) FieldGroup {
+            FieldGroup {
                 if (schoolRow && schoolNotes != null) DetailRow(Icons.Outlined.School) {
                     schoolNotes.teachers?.let { PrimaryText(it) }
                     schoolNotes.summary?.let { SecondaryText(it) }
@@ -307,6 +321,12 @@ fun DetailsScreen(vm: SunlithViewModel, opened: CalendarEvent) {
                         SelectionContainer { Text(shownNotes, color = p.onSurface, style = MaterialTheme.typography.bodyLarge) }
                     }
                 }
+                val notesHint = stringResource(R.string.editor_notes_hint)
+                if (descriptionNotes) EditorField(Icons.AutoMirrored.Outlined.Notes, noteText, notesHint, singleLine = false,
+                    readOnly = !permissionsLoaded) { noteText = it }
+                else EditorField(Icons.AutoMirrored.Outlined.Notes, vm.localNotes[event.noteKey].orEmpty(), notesHint, singleLine = false) {
+                    vm.setLocalNote(event, it)
+                }
             }
         }
     }
@@ -329,12 +349,12 @@ fun DetailsScreen(vm: SunlithViewModel, opened: CalendarEvent) {
 }
 
 @Composable
-private fun DetailRow(icon: ImageVector, onClick: (() -> Unit)? = null, content: @Composable () -> Unit) {
+private fun DetailRow(icon: ImageVector, onClick: (() -> Unit)? = null, centered: Boolean = false, content: @Composable () -> Unit) {
     val p = MaterialTheme.colorScheme
     val base = Modifier.fillMaxWidth().heightIn(min = 56.dp)
     Row(
         (if (onClick != null) base.clickable(role = Role.Button, onClick = onClick) else base).padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.Top,
+        verticalAlignment = if (centered) Alignment.CenterVertically else Alignment.Top,
     ) {
         Icon(icon, null, tint = p.onSurfaceVariant, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(18.dp))

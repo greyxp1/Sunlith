@@ -420,12 +420,13 @@ private fun EditorRow(icon: ImageVector, onClick: (() -> Unit)?, modifier: Modif
 }
 
 @Composable
-private fun EditorField(icon: ImageVector, value: String, hint: String, singleLine: Boolean, onChange: (String) -> Unit) {
+internal fun EditorField(icon: ImageVector, value: String, hint: String, singleLine: Boolean, readOnly: Boolean = false, onChange: (String) -> Unit) {
     val p = MaterialTheme.colorScheme
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 16.dp), verticalAlignment = if (singleLine) Alignment.CenterVertically else Alignment.Top) {
         Icon(icon, null, tint = p.onSurfaceVariant, modifier = Modifier.padding(top = if (singleLine) 0.dp else 16.dp).size(24.dp))
         TextField(
             value = value, onValueChange = onChange, modifier = Modifier.weight(1f),
+            readOnly = readOnly,
             label = { Text(hint) }, colors = plainFieldColors(), singleLine = singleLine,
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
         )
