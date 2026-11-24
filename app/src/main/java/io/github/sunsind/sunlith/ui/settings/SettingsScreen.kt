@@ -138,6 +138,8 @@ fun SettingsScreen(vm: SunlithViewModel, widget: Boolean = false) {
                     ListGroup {
                         item { ClickRow(stringResource(R.string.title_calendars), icon = Icons.AutoMirrored.Outlined.KeyboardArrowRight) { SettingsActivity.open(context, SettingsActivity.Page.Calendars) } }
                         item { ClickRow(stringResource(R.string.device_link_title), icon = Icons.AutoMirrored.Outlined.KeyboardArrowRight) { SettingsActivity.open(context, SettingsActivity.Page.Computer) } }
+                    }
+                    ListGroup {
                         item { ImportRow(vm) }
                         item { ExportRow(vm) }
                     }
