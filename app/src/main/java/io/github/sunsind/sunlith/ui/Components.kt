@@ -109,7 +109,10 @@ fun GroupItem(index: Int, count: Int, content: @Composable () -> Unit) {
             bottom = if (index == count - 1) 8.dp else 0.dp,
         ),
     ) {
-        CompositionLocalProvider(LocalGroupShapes provides ListItemDefaults.segmentedShapes(index, count), content = content)
+        // Material's segmentedShapes(0, 1) falls back to the tight inner corner radius; match the outer group radius instead.
+        val shapes = if (count == 1) ListItemDefaults.shapes(shape = MaterialTheme.shapes.large)
+        else ListItemDefaults.segmentedShapes(index, count)
+        CompositionLocalProvider(LocalGroupShapes provides shapes, content = content)
     }
 }
 
